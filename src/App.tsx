@@ -196,6 +196,31 @@ export default function App() {
 					</div>
 					<div style={{ display: 'grid', gap: 6 }}>
 						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+							Camera Movement
+							<select value={dancerOverlaySources.cameraMode ?? 'static'} onChange={e => setDancerOverlaySources(s => ({ ...s, cameraMode: e.target.value as DancerSources['cameraMode'] }))}>
+								<option value="static">Static</option>
+								<option value="pan">Pan</option>
+								<option value="rotate">Rotate</option>
+							</select>
+						</label>
+						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+							Color Flash
+							<input type='checkbox' checked={!!dancerOverlaySources.colorFlash?.enabled} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), enabled: e.target.checked } }))} />
+							<select value={(dancerOverlaySources.colorFlash && dancerOverlaySources.colorFlash.mode) ? dancerOverlaySources.colorFlash.mode : 'flash'} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), mode: e.target.value as ('flash'|'strobe'|'spot') } }))}>
+								<option value='flash'>Flash</option>
+								<option value='strobe'>Strobe</option>
+								<option value='spot'>Spot Lights</option>
+							</select>
+							<input type='color' value={dancerOverlaySources.colorFlash?.colors?.[0] ?? dancerOverlaySources.colorFlash?.color ?? '#ffffff'} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), colors: [e.target.value, s.colorFlash?.colors?.[1] ?? '#ff0080', s.colorFlash?.colors?.[2] ?? '#00d08a'], color: e.target.value } }))} />
+							<input type='color' value={dancerOverlaySources.colorFlash?.colors?.[1] ?? '#ff0080'} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), colors: [s.colorFlash?.colors?.[0] ?? '#ffffff', e.target.value, s.colorFlash?.colors?.[2] ?? '#00d08a'] } }))} />
+							<input type='color' value={dancerOverlaySources.colorFlash?.colors?.[2] ?? '#00d08a'} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), colors: [s.colorFlash?.colors?.[0] ?? '#ffffff', s.colorFlash?.colors?.[1] ?? '#ff0080', e.target.value] } }))} />
+							<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+								Intensity
+								<input type='range' min={0} max={100} value={Math.round((dancerOverlaySources.colorFlash?.intensity ?? 1) * 100)} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), intensity: Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 100)) } }))} />
+								<span style={{ width: 36, textAlign: 'right' }}>{Math.round((dancerOverlaySources.colorFlash?.intensity ?? 1) * 100)}%</span>
+							</label>
+						</label>
+						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
 							Choose Character
 							<select value={dancerOverlaySources.characterUrl ?? ''} onChange={e => setDancerOverlaySources(s => ({ ...s, characterUrl: e.target.value }))}>
 								<option value="">Select from /public/character</option>
