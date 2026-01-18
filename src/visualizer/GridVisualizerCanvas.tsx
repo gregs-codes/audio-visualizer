@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, forwardRef } from 'react';
 import type { VisualizerMode } from './visualizerModes';
+import { VISUALIZERS } from './visualizers';
+import type { DancerSources } from './dancer/DancerEngine';
 
 export type LayoutMode = '1' | '2-horizontal' | '2-vertical' | '4';
 
-type Panel = { mode: VisualizerMode; color: string; colors?: { low: string; mid: string; high: string } };
+type Panel = { mode: VisualizerMode; color: string; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources };
 
 type Props = {
   analyser: AnalyserNode | null;
@@ -46,55 +48,19 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(functio
     if (!analyser || !c) return;
     const ctx = c.getContext('2d')!;
 
+    // Helper to convert hex color (e.g., #rrggbb or #rgb) to rgba string with alpha
+    const hexToRgba = (hex: string, alpha = 1): string => {
+      let h = hex.replace('#', '');
+      if (h.length === 3) {
+        h = h.split('').map(ch => ch + ch).join('');
+      }
+      const r = parseInt(h.substring(0, 2), 16);
+      const g = parseInt(h.substring(2, 4), 16);
+      const b = parseInt(h.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
+
     const regions = computeRegions(layout, c.width, c.height);
-    const pickColor = (ratio: number, colors: Panel['colors'], fallback: string) => {
-      if (colors) {
-        if (ratio < 1/3) return colors.low;
-        if (ratio < 2/3) return colors.mid;
-        return colors.high;
-      }
-      return fallback;
-    };
-    const drawBars = (x: number, y: number, w: number, h: number, panel: Panel, data: Uint8Array) => {
-      const bars = Math.max(32, Math.floor(w / 20));
-      const barW = w / bars;
-      for (let i = 0; i < bars; i++) {
-        const idx = Math.floor((i / bars) * data.length);
-        const v = data[idx] / 255;
-        const ratio = idx / data.length;
-        ctx.fillStyle = pickColor(ratio, panel.colors, panel.color);
-        ctx.fillRect(x + i * barW, y + h - v * h, barW - 2, v * h);
-      }
-    };
-    const drawWave = (x: number, y: number, w: number, h: number, color: string, time: Uint8Array) => {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      for (let i = 0; i < time.length; i++) {
-        const v = time[i] / 255;
-        const px = x + (i / time.length) * w;
-        const py = y + (1 - v) * h;
-        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-      }
-      ctx.stroke();
-    };
-    const drawCircle = (x: number, y: number, w: number, h: number, panel: Panel, data: Uint8Array) => {
-      const cx = x + w / 2; const cy = y + h / 2; const radius = Math.min(w, h) / 4;
-      const spokes = 96;
-      for (let i = 0; i < spokes; i++) {
-        const t = (i / spokes) * 2 * Math.PI;
-        const idx = Math.floor((i / spokes) * data.length);
-        const v = (data[idx] / 255) * (Math.min(w, h) / 4);
-        const ratio = idx / data.length;
-        ctx.strokeStyle = pickColor(ratio, panel.colors, panel.color);
-        ctx.lineWidth = 2;
-        const x1 = cx + Math.cos(t) * radius;
-        const y1 = cy + Math.sin(t) * radius;
-        const x2 = cx + Math.cos(t) * (radius + v);
-        const y2 = cy + Math.sin(t) * (radius + v);
-        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-      }
-    };
 
     let raf = 0;
     const render = () => {
@@ -105,16 +71,15 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(functio
       const energy = baseFreq.reduce((sum, v) => sum + v, 0) / (255 * Math.max(1, baseFreq.length));
       const timeNow = performance.now() / 1000;
       panels.forEach((p, i) => {
-        const r = regions[i] || regions[0];
+        const rgn = regions[i] || regions[0];
         const panelAnalyser = analysers?.[i] || analyser;
         const freq = new Uint8Array(panelAnalyser.frequencyBinCount);
         const time = new Uint8Array(panelAnalyser.fftSize);
         panelAnalyser.getByteFrequencyData(freq);
         panelAnalyser.getByteTimeDomainData(time);
-        switch (p.mode) {
-          case 'bars': drawBars(r.x, r.y, r.w, r.h, p, freq); break;
-          case 'wave': drawWave(r.x, r.y, r.w, r.h, p.color, time); break;
-          case 'circle': drawCircle(r.x, r.y, r.w, r.h, p, freq); break;
+        const renderer = VISUALIZERS[p.mode as VisualizerMode];
+        if (renderer) {
+          renderer({ ctx, x: rgn.x, y: rgn.y, w: rgn.w, h: rgn.h, panel: p, freq, time, energy, now: timeNow, panelKey: `panel-${i}` });
         }
       });
       // Overlay text helper
@@ -129,9 +94,12 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(functio
         ctx.save();
         const baseSize = size * (effects?.pulse ? (1 + energy * 0.25) : 1);
         ctx.font = `600 ${Math.round(baseSize)}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+        // Ensure color changes are visually apparent: fill + subtle stroke + color-matched shadow
         ctx.fillStyle = color;
-        ctx.shadowColor = 'rgba(0,0,0,0.35)';
-        ctx.shadowBlur = 6;
+        ctx.strokeStyle = hexToRgba(color, 0.85);
+        ctx.lineWidth = 1;
+        ctx.shadowColor = hexToRgba(color, 0.3);
+        ctx.shadowBlur = 8;
         const margin = 24;
         let x = margin, y = margin;
         let textAlign: CanvasTextAlign = 'left';
@@ -152,7 +120,10 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(functio
         const bounceOffset = effects?.bounce ? -energy * 20 : 0;
         ctx.textAlign = textAlign;
         ctx.textBaseline = textBaseline;
-        ctx.fillText(text, x, y + floatOffset + bounceOffset);
+        const ty = y + floatOffset + bounceOffset;
+        ctx.fillText(text, x, ty);
+        // Stroke for better contrast regardless of background visuals
+        ctx.strokeText(text, x, ty);
         ctx.restore();
       };
       if (overlayTitle) {

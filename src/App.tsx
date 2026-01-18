@@ -2,12 +2,17 @@ import { useMemo, useRef, useState } from 'react';
 import { useAudioAnalyzer } from './audio/useAudioAnalyzer';
 import { GridVisualizerCanvas } from './visualizer/GridVisualizerCanvas';
 import type { VisualizerMode, FrequencyBand } from './visualizer/visualizerModes';
+import type { DancerSources } from './visualizer/dancer/DancerEngine';
+import { DancerPreview } from './visualizer/dancer/DancerPreview';
+import { ANIMATION_FILES } from './visualizer/dancer/animations';
+import { CHARACTER_FILES } from './visualizer/dancer/characters';
+import { VISUALIZER_MODES, LABELS } from './visualizer/visualizers';
 import type { LayoutMode } from './visualizer/GridVisualizerCanvas';
 import { useCanvasRecorder } from './recorder/useCanvasRecorder';
 
 export default function App() {
 	const { audioRef, init, getAudioStream, getBandAnalyser } = useAudioAnalyzer();
-	const [mode, setMode] = useState<VisualizerMode>('bars');
+		const [mode, setMode] = useState<VisualizerMode>('vertical-bars');
 	const [theme, setTheme] = useState('dark');
 	const [color, setColor] = useState('#7aa2ff');
 	const [ready, setReady] = useState(false);
@@ -17,9 +22,9 @@ export default function App() {
 	const { start, stop, download, recording } = useCanvasRecorder();
 		const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
 
-	type PanelConfig = { mode: VisualizerMode; color: string; band: FrequencyBand; colors?: { low: string; mid: string; high: string } };
+		type PanelConfig = { mode: VisualizerMode; color: string; band: FrequencyBand; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources };
 	const defaultPanelColors = { low: '#00d08a', mid: '#7aa2ff', high: '#ff6b6b' };
-	const [panels, setPanels] = useState<PanelConfig[]>([{ mode: 'bars', color, band: 'full', colors: defaultPanelColors }]);
+		const [panels, setPanels] = useState<PanelConfig[]>([{ mode: 'vertical-bars', color, band: 'full', colors: defaultPanelColors }]);
 
 	// Overlay text state
 	const [title, setTitle] = useState('');
@@ -70,14 +75,14 @@ export default function App() {
 						<option value='4'>4</option>
 					</select>
 				</label>
-				<label>
-					Default Mode
-					<select value={mode} onChange={e => setMode(e.target.value as VisualizerMode)}>
-						<option value='bars'>Bars</option>
-						<option value='wave'>Wave</option>
-						<option value='circle'>Circle</option>
-					</select>
-				</label>
+					<label>
+						Default Mode
+						<select value={mode} onChange={e => setMode(e.target.value as VisualizerMode)}>
+											{VISUALIZER_MODES.map(m => (
+								<option key={m} value={m}>{LABELS[m]}</option>
+							))}
+						</select>
+					</label>
 				<label>
 					Theme
 					<select value={theme} onChange={e => setTheme(e.target.value)}>
@@ -104,13 +109,13 @@ export default function App() {
 					<div key={i} style={{ display: 'grid', gap: 6 }}>
 						<div style={{ color: 'var(--muted)' }}>Panel {i + 1}</div>
 						<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-							<select value={p.mode} onChange={e => {
+											<select value={p.mode} onChange={e => {
 								const val = e.target.value as VisualizerMode;
 								setPanels(old => old.map((x, idx) => idx === i ? { ...x, mode: val } : x));
 							}}>
-								<option value='bars'>Bars</option>
-								<option value='wave'>Wave</option>
-								<option value='circle'>Circle</option>
+												{VISUALIZER_MODES.map(m => (
+													<option key={m} value={m}>{LABELS[m]}</option>
+												))}
 							</select>
 							<select value={p.band} onChange={e => {
 								const val = e.target.value as FrequencyBand;
@@ -156,6 +161,72 @@ export default function App() {
 								</label>
 							</div>
 						)}
+								{p.mode === 'dancer-fbx' && (
+											<div style={{ display: 'grid', gap: 6 }}>
+													<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+														Choose Character
+														<select value={p.dancerSources?.characterUrl ?? ''} onChange={e => {
+															const val = e.target.value;
+															setPanels(old => old.map((x, idx) => idx === i ? { ...x, dancerSources: { ...(x.dancerSources ?? {}), characterUrl: val } } : x));
+														}}>
+															<option value="">Select from /public/character</option>
+															{CHARACTER_FILES.map((c) => (
+																<option key={c} value={c}>{c.replace('/character/','')}</option>
+															))}
+														</select>
+													</label>
+										<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+											Character FBX
+											<input placeholder="/character/hero.fbx" value={p.dancerSources?.characterUrl ?? ''} onChange={e => {
+												const val = e.target.value;
+												setPanels(old => old.map((x, idx) => idx === i ? { ...x, dancerSources: { ...(x.dancerSources ?? {}), characterUrl: val } } : x));
+											}} />
+										</label>
+										<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+											Animations (comma-separated)
+											<input placeholder="/dance/Belly Dance.fbx, /dance/Twist Dance.fbx" value={(p.dancerSources?.animationUrls ?? []).join(', ')} onChange={e => {
+												const list = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+												setPanels(old => old.map((x, idx) => idx === i ? { ...x, dancerSources: { ...(x.dancerSources ?? {}), animationUrls: list } } : x));
+											}} />
+										</label>
+														<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+															Choose Animations
+															<select multiple size={4} value={(p.dancerSources?.animationUrls ?? [])} onChange={e => {
+																const selected: string[] = Array.from((e.target as HTMLSelectElement).selectedOptions).map(o => o.value);
+																setPanels(old => old.map((x, idx) => idx === i ? { ...x, dancerSources: { ...(x.dancerSources ?? {}), animationUrls: selected } } : x));
+															}}>
+																{ANIMATION_FILES.map(a => (
+																	<option key={a} value={a}>{a.replace('/dance/','')}</option>
+																))}
+															</select>
+														</label>
+												<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+													<DancerPreview
+														sources={{
+															characterUrl: p.dancerSources?.characterUrl,
+															animationUrls: p.dancerSources?.animationUrls,
+														}}
+														analyser={analysers[i] || analyserNode}
+														width={220}
+														height={124}
+														panelKey={`preview-${i}`}
+													/>
+													<div style={{ color: 'var(--muted)', fontSize: 12 }}>Preview</div>
+												</div>
+												<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+													<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+														Or upload FBX
+														<input type="file" accept=".fbx" onChange={e => {
+															const f = e.target.files?.[0];
+															if (f) {
+																const url = URL.createObjectURL(f);
+																setPanels(old => old.map((x, idx) => idx === i ? { ...x, dancerSources: { ...(x.dancerSources ?? {}), characterUrl: url } } : x));
+															}
+														}} />
+													</label>
+												</div>
+									</div>
+								)}
 					</div>
 				))}
 			</div>
