@@ -9,3 +9,21 @@ button:hover{filter:brightness(1.1);}
 .toolbar label{display:flex;gap:6px;align-items:center;color:var(--muted);} 
 .canvas-wrap{background:radial-gradient(1200px 600px at 20% 0%, rgba(122,162,255,0.15), transparent 60%), radial-gradient(1200px 600px at 80% 100%, rgba(122,162,255,0.15), transparent 60%), var(--panel);border:1px solid var(--panelBorder);border-radius:12px;overflow:hidden;box-shadow:0 12px 32px var(--shadow);} 
 .canvas-wrap canvas{display:block;width:100%;height:auto;} 
+
+/* Overlay UI */
+.overlay-controls{position:relative;}
+.overlay-controls .controlbar{position:absolute;left:12px;right:12px;bottom:12px;display:flex;gap:10px;align-items:center;justify-content:space-between;background:color-mix(in oklab, var(--panel) 86%, black 14%);border:1px solid var(--panelBorder);border-radius:12px;padding:10px 12px;backdrop-filter:blur(6px);box-shadow:0 8px 24px var(--shadow);}
+.overlay-controls .controlbar .left{display:flex;gap:8px;align-items:center;}
+.overlay-controls .controlbar .right{display:flex;gap:8px;align-items:center;}
+.overlay-controls .icon-btn{display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:36px;border-radius:10px;border:1px solid var(--panelBorder);background:linear-gradient(180deg, rgba(122,162,255,0.12), rgba(122,162,255,0.04));color:var(--fg);cursor:pointer;transition:transform .18s ease, filter .2s ease, background .2s ease;}
+.overlay-controls .icon-btn:hover{filter:brightness(1.08);transform:translateY(-1px);} 
+.overlay-controls .upload{position:relative;}
+.overlay-controls .upload input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.overlay-controls .volume{display:flex;gap:8px;align-items:center;color:var(--muted);}
+.overlay-controls input[type="range"]{accent-color:var(--accent);} 
+.overlay-controls .fullscreen{position:absolute;top:12px;right:12px;}
+
+@media (max-width: 720px){
+	.overlay-controls .controlbar{flex-direction:column;gap:12px;padding:10px;}
+	.overlay-controls .controlbar .right{width:100%;justify-content:space-between;}
+}

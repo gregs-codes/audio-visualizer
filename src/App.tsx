@@ -49,6 +49,9 @@ export default function App() {
 	const [exporting, setExporting] = useState<boolean>(false);
 	const [exportProgress, setExportProgress] = useState<number>(0);
 	const [exportError, setExportError] = useState<string>('');
+	const [isPlaying, setIsPlaying] = useState<boolean>(false);
+	const [volume, setVolume] = useState<number>(80);
+	const wrapRef = useRef<HTMLDivElement | null>(null);
 
 	const effectiveSize = useMemo(() => {
 		const h = parseInt(res, 10);
@@ -58,6 +61,21 @@ export default function App() {
 		return { w: h, h: w };
 	}, [aspect, res]);
 		const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
+		useEffect(() => {
+			const a = audioRef.current;
+			if (!a) return;
+			const onPlay = () => setIsPlaying(true);
+			const onPause = () => setIsPlaying(false);
+			const onEnded = () => setIsPlaying(false);
+			a.addEventListener('play', onPlay);
+			a.addEventListener('pause', onPause);
+			a.addEventListener('ended', onEnded);
+			return () => {
+				a.removeEventListener('play', onPlay);
+				a.removeEventListener('pause', onPause);
+				a.removeEventListener('ended', onEnded);
+			};
+		}, [audioRef]);
 
 		type PanelConfig = { mode: VisualizerMode; color: string; band: FrequencyBand; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources };
 	const defaultPanelColors = { low: '#00d08a', mid: '#7aa2ff', high: '#ff6b6b' };
@@ -496,7 +514,7 @@ export default function App() {
 				</div>
 			</div>
 
-				<div className="canvas-wrap">
+				<div className="canvas-wrap overlay-controls" ref={wrapRef}>
 					{ready && analyserNode && (
 						<>
 							<GridVisualizerCanvas
@@ -531,6 +549,55 @@ export default function App() {
 									overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
 								/>
 							</div>
+
+								{/* Minimal overlay UI */}
+								<div className="controlbar" aria-label="Playback Controls" role="group">
+									<div className="left">
+										<button
+											className="icon-btn"
+											aria-label={isPlaying ? 'Pause' : 'Play'}
+											onClick={() => {
+												const a = audioRef.current; if (!a) return;
+												if (a.paused) a.play(); else a.pause();
+											}}
+										>{isPlaying ? '⏸' : '▶︎'}</button>
+										<div className="upload">
+											<button className="icon-btn" aria-label="Upload Audio">＋ Audio</button>
+											<input
+												type='file'
+												accept='audio/*'
+												aria-label='Upload Audio File'
+												onChange={async e => { const f = e.target.files?.[0]; if (f) { const a = await init(f); setAnalyserNode(a); setAudioEl(audioRef.current); setReady(true); } }}
+											/>
+										</div>
+									</div>
+									<div className="right">
+										<div className="volume" aria-label="Volume">
+											<span>Vol</span>
+											<input
+												type='range'
+												min={0}
+												max={100}
+												step={1}
+												value={volume}
+												onChange={e => {
+													const v = parseInt(e.target.value, 10); setVolume(v);
+													const a = audioRef.current; if (a) a.volume = Math.max(0, Math.min(1, v / 100));
+												}}
+											/>
+										</div>
+									</div>
+								</div>
+
+								{/* Fullscreen toggle */}
+								<button
+									className="icon-btn fullscreen"
+									aria-label="Toggle Fullscreen"
+									onClick={() => {
+										const el = wrapRef.current; if (!el) return;
+										if (!document.fullscreenElement) el.requestFullscreen?.(); else document.exitFullscreen?.();
+									}}
+								>⤢</button>
 						</>
 					)}
 				</div>
