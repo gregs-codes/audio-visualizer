@@ -42,6 +42,12 @@ export default function App() {
 	const [countColor, setCountColor] = useState('#e6e6eb');
 	const [countFx, setCountFx] = useState<{ float: boolean; bounce: boolean; pulse: boolean }>({ float: false, bounce: true, pulse: true });
 
+	// Dancer overlay state (acts like text overlays, independent of panel modes)
+	const [showDancer, setShowDancer] = useState(false);
+	const [dancerPos, setDancerPos] = useState<Position9>('mm');
+	const [dancerSize, setDancerSize] = useState<number>(40); // percent of canvas width
+	const [dancerOverlaySources, setDancerOverlaySources] = useState<DancerSources>({});
+
 	const analysers = useMemo(() => {
 		if (!ready) return [] as (AnalyserNode | null)[];
 		return panels.map(p => p.band === 'full' ? analyserNode : (getBandAnalyser(p.band)));
@@ -78,7 +84,7 @@ export default function App() {
 					<label>
 						Default Mode
 						<select value={mode} onChange={e => setMode(e.target.value as VisualizerMode)}>
-											{VISUALIZER_MODES.map(m => (
+											{VISUALIZER_MODES.filter(m => m !== 'dancer-fbx').map(m => (
 								<option key={m} value={m}>{LABELS[m]}</option>
 							))}
 						</select>
@@ -109,13 +115,13 @@ export default function App() {
 					<div key={i} style={{ display: 'grid', gap: 6 }}>
 						<div style={{ color: 'var(--muted)' }}>Panel {i + 1}</div>
 						<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-											<select value={p.mode} onChange={e => {
+							<select value={p.mode} onChange={e => {
 								const val = e.target.value as VisualizerMode;
 								setPanels(old => old.map((x, idx) => idx === i ? { ...x, mode: val } : x));
 							}}>
-												{VISUALIZER_MODES.map(m => (
-													<option key={m} value={m}>{LABELS[m]}</option>
-												))}
+								{VISUALIZER_MODES.filter(m => m !== 'dancer-fbx').map(m => (
+									<option key={m} value={m}>{LABELS[m]}</option>
+								))}
 							</select>
 							<select value={p.band} onChange={e => {
 								const val = e.target.value as FrequencyBand;
@@ -161,74 +167,77 @@ export default function App() {
 								</label>
 							</div>
 						)}
-								{p.mode === 'dancer-fbx' && (
-											<div style={{ display: 'grid', gap: 6 }}>
-													<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-														Choose Character
-														<select value={p.dancerSources?.characterUrl ?? ''} onChange={e => {
-															const val = e.target.value;
-															setPanels(old => old.map((x, idx) => idx === i ? { ...x, dancerSources: { ...(x.dancerSources ?? {}), characterUrl: val } } : x));
-														}}>
-															<option value="">Select from /public/character</option>
-															{CHARACTER_FILES.map((c) => (
-																<option key={c} value={c}>{c.replace('/character/','')}</option>
-															))}
-														</select>
-													</label>
-										<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-											Character FBX
-											<input placeholder="/character/hero.fbx" value={p.dancerSources?.characterUrl ?? ''} onChange={e => {
-												const val = e.target.value;
-												setPanels(old => old.map((x, idx) => idx === i ? { ...x, dancerSources: { ...(x.dancerSources ?? {}), characterUrl: val } } : x));
-											}} />
-										</label>
-										<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-											Animations (comma-separated)
-											<input placeholder="/dance/Belly Dance.fbx, /dance/Twist Dance.fbx" value={(p.dancerSources?.animationUrls ?? []).join(', ')} onChange={e => {
-												const list = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-												setPanels(old => old.map((x, idx) => idx === i ? { ...x, dancerSources: { ...(x.dancerSources ?? {}), animationUrls: list } } : x));
-											}} />
-										</label>
-														<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-															Choose Animations
-															<select multiple size={4} value={(p.dancerSources?.animationUrls ?? [])} onChange={e => {
-																const selected: string[] = Array.from((e.target as HTMLSelectElement).selectedOptions).map(o => o.value);
-																setPanels(old => old.map((x, idx) => idx === i ? { ...x, dancerSources: { ...(x.dancerSources ?? {}), animationUrls: selected } } : x));
-															}}>
-																{ANIMATION_FILES.map(a => (
-																	<option key={a} value={a}>{a.replace('/dance/','')}</option>
-																))}
-															</select>
-														</label>
-												<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-													<DancerPreview
-														sources={{
-															characterUrl: p.dancerSources?.characterUrl,
-															animationUrls: p.dancerSources?.animationUrls,
-														}}
-														analyser={analysers[i] || analyserNode}
-														width={220}
-														height={124}
-														panelKey={`preview-${i}`}
-													/>
-													<div style={{ color: 'var(--muted)', fontSize: 12 }}>Preview</div>
-												</div>
-												<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-													<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-														Or upload FBX
-														<input type="file" accept=".fbx" onChange={e => {
-															const f = e.target.files?.[0];
-															if (f) {
-																const url = URL.createObjectURL(f);
-																setPanels(old => old.map((x, idx) => idx === i ? { ...x, dancerSources: { ...(x.dancerSources ?? {}), characterUrl: url } } : x));
-															}
-														}} />
-													</label>
-												</div>
-									</div>
-								)}
 					</div>
 				))}
+			</div>
+
+			{/* Dancer overlay controls */}
+			<div className="toolbar" style={{ gap: 12 }}>
+				<div style={{ display: 'grid', gap: 8 }}>
+					<div style={{ color: 'var(--muted)' }}>Dancer Overlay</div>
+					<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+						<label><input type='checkbox' checked={showDancer} onChange={e => setShowDancer(e.target.checked)} /> Show</label>
+						<select value={dancerPos} onChange={e => setDancerPos(e.target.value as Position9)}>
+							<option value='lt'>Left Top</option>
+							<option value='mt'>Mid Top</option>
+							<option value='rt'>Right Top</option>
+							<option value='lm'>Left Mid</option>
+							<option value='mm'>Middle</option>
+							<option value='rm'>Right Mid</option>
+							<option value='lb'>Left Bottom</option>
+							<option value='mb'>Mid Bottom</option>
+							<option value='rb'>Right Bottom</option>
+						</select>
+						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+							Size
+							<input type='range' min={20} max={70} value={dancerSize} onChange={e => setDancerSize(parseInt(e.target.value, 10))} />
+							<span style={{ width: 36, textAlign: 'right' }}>{dancerSize}%</span>
+						</label>
+					</div>
+					<div style={{ display: 'grid', gap: 6 }}>
+						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+							Choose Character
+							<select value={dancerOverlaySources.characterUrl ?? ''} onChange={e => setDancerOverlaySources(s => ({ ...s, characterUrl: e.target.value }))}>
+								<option value="">Select from /public/character</option>
+								{CHARACTER_FILES.map((c) => (
+									<option key={c} value={c}>{c.replace('/character/','')}</option>
+								))}
+							</select>
+						</label>
+						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+							Character FBX
+							<input placeholder="/character/hero.fbx" value={dancerOverlaySources.characterUrl ?? ''} onChange={e => setDancerOverlaySources(s => ({ ...s, characterUrl: e.target.value }))} />
+						</label>
+						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+							Choose Animations
+							<select multiple size={4} value={(dancerOverlaySources.animationUrls ?? [])} onChange={e => {
+								const selected: string[] = Array.from((e.target as HTMLSelectElement).selectedOptions).map(o => o.value);
+								setDancerOverlaySources(s => ({ ...s, animationUrls: selected }));
+							}}>
+								{ANIMATION_FILES.map(a => (
+									<option key={a} value={a}>{a.replace('/dance/','')}</option>
+								))}
+							</select>
+						</label>
+						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+							Animations (comma-separated)
+							<input placeholder="/dance/Belly Dance.fbx, /dance/Twist Dance.fbx" value={(dancerOverlaySources.animationUrls ?? []).join(', ')} onChange={e => {
+								const list = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+								setDancerOverlaySources(s => ({ ...s, animationUrls: list }));
+							}} />
+						</label>
+						<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+							<DancerPreview
+								sources={dancerOverlaySources}
+								analyser={analyserNode}
+								width={220}
+								height={124}
+								panelKey={`overlay-preview`}
+							/>
+							<div style={{ color: 'var(--muted)', fontSize: 12 }}>Preview</div>
+						</div>
+					</div>
+				</div>
 			</div>
 
 			<div className="toolbar" style={{ gap: 12 }}>
@@ -314,6 +323,7 @@ export default function App() {
 						overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
 						overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
 						overlayCountdown={{ enabled: showCountdown, position: countPos, color: countColor, effects: countFx }}
+						overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
 					/>
 				)}
 			</div>
