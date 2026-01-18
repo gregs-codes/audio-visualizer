@@ -72,11 +72,5 @@ export function useCanvasRecorder() {
     URL.revokeObjectURL(url);
   };
 
-  const transcodeToMp4 = async (opts?: import('./ffmpegTranscode').TranscodeOpts, onProgress?: (ratio: number) => void): Promise<Blob | null> => {
-    if (!lastBlob) return null;
-    const { webmToMp4 } = await import('./ffmpegTranscode');
-    return await webmToMp4(lastBlob, opts, onProgress);
-  };
-
-  return { start, stop, download, transcodeToMp4, recording, lastBlob };
+  return { start, stop, download, recording, lastBlob };
 }

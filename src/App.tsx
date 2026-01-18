@@ -20,7 +20,7 @@ export default function App() {
 	const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
-	const { start, stop, transcodeToMp4 } = useCanvasRecorder();
+	const { start, stop } = useCanvasRecorder();
 
 	// Export settings
 	const [aspect, setAspect] = useState<'16:9'|'9:16'>('16:9');
@@ -40,16 +40,14 @@ export default function App() {
 		};
 		load();
 	}, []);
-	const [res, setRes] = useState<'360'|'480'|'720'|'1080'>('1080');
+	const [res, setRes] = useState<'360'|'480'|'720'|'1080'>('720');
 	const [fps, setFps] = useState<24|30|60>(30);
 	const [codec, setCodec] = useState<'vp9'|'vp8'>('vp9');
 	const [vBitrate, setVBitrate] = useState<number>(8000); // kbps
 	const [aBitrate, setABitrate] = useState<number>(192); // kbps
 	const [muteDuringExport, setMuteDuringExport] = useState<boolean>(true);
-	const [autoMp4, setAutoMp4] = useState<boolean>(false);
 	const [exporting, setExporting] = useState<boolean>(false);
 	const [exportProgress, setExportProgress] = useState<number>(0);
-	const [transcodeProgress, setTranscodeProgress] = useState<number>(0);
 	const [exportError, setExportError] = useState<string>('');
 
 	const effectiveSize = useMemo(() => {
@@ -191,7 +189,7 @@ export default function App() {
 								</select>
 							</label>
 							<label><input type='checkbox' checked={muteDuringExport} onChange={e => setMuteDuringExport(e.target.checked)} /> Mute during export</label>
-							<label><input type='checkbox' checked={autoMp4} onChange={e => setAutoMp4(e.target.checked)} /> Auto transcode to MP4</label>
+							{/* MP4 transcode option removed */}
 							<span style={{ color: 'var(--muted)', fontSize: 12 }}>Target: {effectiveSize.w}×{effectiveSize.h}</span>
 						</div>
 						<button disabled={exporting} onClick={async () => {
@@ -202,7 +200,7 @@ export default function App() {
 							// Prepare
 							// Mute local speakers via GainNode (recording still taps MediaStreamDestination)
 							if (muteDuringExport) setPlaybackMuted(true);
-							setExporting(true); setExportProgress(0); setTranscodeProgress(0); setExportError('');
+							setExporting(true); setExportProgress(0); setExportError('');
 							// Start recorder
 							const mime = codec === 'vp9' ? 'video/webm;codecs=vp9,opus' : 'video/webm;codecs=vp8,opus';
 							start(canvas, getAudioStream(), { fps, mime, audioBitsPerSecond: aBitrate * 1000, videoBitsPerSecond: vBitrate * 1000 });
@@ -229,19 +227,8 @@ export default function App() {
 							if (muteDuringExport) setPlaybackMuted(false);
 							setExportProgress(1);
 							setExporting(false);
-							// Offer downloads
-							if (autoMp4 && blob) {
-								setTranscodeProgress(0);
-								const mp4 = await transcodeToMp4({
-									preset: 'fast',
-									videoBitrateKbps: vBitrate,
-									audioBitrateKbps: aBitrate,
-									fps,
-									width: effectiveSize.w,
-									height: effectiveSize.h,
-								}, (ratio) => setTranscodeProgress(ratio));
-								if (mp4) { const url = URL.createObjectURL(mp4); const a = document.createElement('a'); a.href = url; a.download = `visualizer_${res}_${aspect.replace(':','-')}.mp4`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
-							} else if (blob) {
+							// Download WebM directly
+							if (blob) {
 								const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `visualizer_${res}_${aspect.replace(':','-')}.webm`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 							}
 						}}>
@@ -258,14 +245,7 @@ export default function App() {
 						{exportError && (
 							<div style={{ color: 'var(--danger, #ff6b6b)', fontSize: 12 }}>{exportError}</div>
 						)}
-						{!exporting && autoMp4 && transcodeProgress > 0 && transcodeProgress < 1 && (
-							<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-								<div style={{ width: 160, height: 8, background: 'var(--panelBorder)', borderRadius: 4, overflow: 'hidden' }}>
-									<div style={{ width: `${Math.round(transcodeProgress * 100)}%`, height: '100%', background: '#00d08a' }} />
-								</div>
-								<span style={{ fontSize: 12, color: 'var(--muted)' }}>Transcoding {Math.round(transcodeProgress * 100)}%</span>
-							</div>
-						)}
+						{/* MP4 transcode progress removed */}
 					</>
 				)}
 			</div>
@@ -528,6 +508,7 @@ export default function App() {
 								width={effectiveSize.w}
 								height={effectiveSize.h}
 								audio={audioEl}
+								instanceKey={'preview'}
 								overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
 								overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
 								overlayCountdown={{ enabled: showCountdown, position: countPos, color: countColor, effects: countFx }}
@@ -543,6 +524,7 @@ export default function App() {
 									width={effectiveSize.w}
 									height={effectiveSize.h}
 									audio={audioEl}
+									instanceKey={'export'}
 									overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
 									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
 									overlayCountdown={{ enabled: showCountdown, position: countPos, color: countColor, effects: countFx }}

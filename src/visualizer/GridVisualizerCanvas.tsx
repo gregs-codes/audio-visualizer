@@ -2,7 +2,13 @@ import React, { useEffect, useRef, forwardRef } from 'react';
 import type { VisualizerMode } from './visualizerModes';
 import { VISUALIZERS } from './visualizers';
 import type { DancerSources } from './dancer/DancerEngine';
-import { renderDancer } from './dancer/DancerEngine';
+import { renderDancerWithFeatures } from './dancer/DancerEngine';
+import { renderHighGfxWithFeatures } from './highgfx/HighGfxEngine';
+import { renderHighGfxNebulaWithFeatures } from './highgfx/HighGfxNebulaEngine';
+import { renderHighGfxTunnelWithFeatures } from './highgfx/HighGfxTunnelEngine';
+import { renderHighGfxCurlWithFeatures } from './highgfx/HighGfxCurlEngine';
+import { renderHighGfxSpiralWithFeatures } from './highgfx/HighGfxSpiralEngine';
+import { AudioFeatureDetector } from '../audio/audioFeatures';
 
 export type LayoutMode = '1' | '2-horizontal' | '2-vertical' | '4';
 
@@ -22,7 +28,7 @@ type Props = {
   overlayDancer?: { enabled: boolean; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; widthPct: number; sources?: DancerSources };
 };
 
-export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(function GridVisualizerCanvas({
+export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { instanceKey?: string }>(function GridVisualizerCanvas({
   analyser,
   analysers,
   layout,
@@ -34,9 +40,11 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(functio
   overlayDescription,
   overlayCountdown,
   overlayDancer,
+  instanceKey = 'main',
 }, ref) {
   const innerRef = useRef<HTMLCanvasElement>(null);
   const dancerFrameRef = useRef<HTMLCanvasElement | null>(null);
+  const hgFramesRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
 
   // Bridge innerRef to the forwarded ref
   useEffect(() => {
@@ -110,12 +118,16 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(functio
     };
 
     let raf = 0;
+    const mainDetector = new AudioFeatureDetector(analyser);
+    const panelDetectors = panels.map((_, i) => new AudioFeatureDetector(analysers?.[i] || analyser));
     const render = () => {
       ctx.clearRect(0, 0, c.width, c.height);
       const baseFreq = new Uint8Array(analyser.frequencyBinCount);
       analyser.getByteFrequencyData(baseFreq);
       const energy = baseFreq.reduce((sum, v) => sum + v, 0) / (255 * Math.max(1, baseFreq.length));
       const timeNow = performance.now() / 1000;
+      // advance audio features for overlay
+      const features = mainDetector.update(1/60);
 
       panels.forEach((p, i) => {
         const rgn = regions[i] || regions[0];
@@ -125,7 +137,25 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(functio
         panelAnalyser.getByteFrequencyData(freq);
         panelAnalyser.getByteTimeDomainData(time);
         const renderer = VISUALIZERS[p.mode as VisualizerMode];
-        if (renderer) {
+        if (p.mode === 'high-graphics' || p.mode === 'high-graphics-nebula' || p.mode === 'high-graphics-tunnel' || p.mode === 'high-graphics-curl' || p.mode === 'high-graphics-spiral') {
+          // Draw cached HG frame synchronously to preserve overlay order
+          const cached = hgFramesRef.current.get(i);
+          if (cached) {
+            try { ctx.drawImage(cached, Math.floor(rgn.x), Math.floor(rgn.y), Math.floor(rgn.w), Math.floor(rgn.h)); } catch {}
+          }
+          // Schedule async update to refresh cache for next frame
+          const feats = panelDetectors[i].update(1/60);
+          const W = Math.floor(rgn.w); const H = Math.floor(rgn.h);
+          let promise: Promise<HTMLCanvasElement> | null = null;
+          if (p.mode === 'high-graphics') promise = renderHighGfxWithFeatures(`highgfx|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-nebula') promise = renderHighGfxNebulaWithFeatures(`nebula|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-tunnel') promise = renderHighGfxTunnelWithFeatures(`tunnel|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-curl') promise = renderHighGfxCurlWithFeatures(`curl|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-spiral') promise = renderHighGfxSpiralWithFeatures(`spiral|${instanceKey}|${i}`, W, H, feats, timeNow);
+          if (promise) {
+            promise.then((off) => { hgFramesRef.current.set(i, off); }).catch(() => {});
+          }
+        } else if (renderer) {
           renderer({ ctx, x: rgn.x, y: rgn.y, w: rgn.w, h: rgn.h, panel: p, freq, time, energy, now: timeNow, panelKey: `panel-${i}` });
         }
       });
@@ -154,9 +184,9 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(functio
           try { ctx.drawImage(dancerFrameRef.current, x, y, targetW, targetH); } catch {}
         }
         const sources = overlayDancer.sources ?? {};
-        const key = `overlay-dancer|${sources.characterUrl ?? ''}|${(sources.animationUrls ?? []).join(',')}`;
+        const key = `overlay-dancer|${instanceKey}|${sources.characterUrl ?? ''}|${(sources.animationUrls ?? []).join(',')}`;
         const isPlaying = !!audio && !audio.paused && !audio.ended && (audio.currentTime ?? 0) > 0;
-        renderDancer(key, sources, targetW, targetH, energy, isPlaying, baseFreq, timeNow)
+        renderDancerWithFeatures(key, sources, targetW, targetH, features, isPlaying, timeNow)
           .then((canvas3d) => { dancerFrameRef.current = canvas3d; })
           .catch(() => {});
       }
