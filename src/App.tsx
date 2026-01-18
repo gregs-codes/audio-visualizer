@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAudioAnalyzer } from './audio/useAudioAnalyzer';
 import { GridVisualizerCanvas } from './visualizer/GridVisualizerCanvas';
 import type { VisualizerMode, FrequencyBand } from './visualizer/visualizerModes';
@@ -11,7 +11,7 @@ import type { LayoutMode } from './visualizer/GridVisualizerCanvas';
 import { useCanvasRecorder } from './recorder/useCanvasRecorder';
 
 export default function App() {
-	const { audioRef, init, getAudioStream, getBandAnalyser } = useAudioAnalyzer();
+	const { audioRef, init, getAudioStream, getBandAnalyser, setPlaybackMuted } = useAudioAnalyzer();
 		const [mode, setMode] = useState<VisualizerMode>('vertical-bars');
 	const [theme, setTheme] = useState('dark');
 	const [color, setColor] = useState('#7aa2ff');
@@ -19,7 +19,46 @@ export default function App() {
 	const [layout, setLayout] = useState<LayoutMode>('1');
 	const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
-	const { start, stop, download, recording } = useCanvasRecorder();
+	const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
+	const { start, stop, transcodeToMp4 } = useCanvasRecorder();
+
+	// Export settings
+	const [aspect, setAspect] = useState<'16:9'|'9:16'>('16:9');
+	// Manifest-driven lists
+	const [animFiles, setAnimFiles] = useState<string[]>(ANIMATION_FILES);
+	const [charFiles, setCharFiles] = useState<string[]>(CHARACTER_FILES);
+	useEffect(() => {
+		const load = async () => {
+			try {
+				const a = await fetch('/dance/manifest.json').then(r => r.ok ? r.json() : []);
+				if (Array.isArray(a) && a.length) setAnimFiles(a);
+			} catch {}
+			try {
+				const c = await fetch('/character/manifest.json').then(r => r.ok ? r.json() : []);
+				if (Array.isArray(c) && c.length) setCharFiles(c);
+			} catch {}
+		};
+		load();
+	}, []);
+	const [res, setRes] = useState<'360'|'480'|'720'|'1080'>('1080');
+	const [fps, setFps] = useState<24|30|60>(30);
+	const [codec, setCodec] = useState<'vp9'|'vp8'>('vp9');
+	const [vBitrate, setVBitrate] = useState<number>(8000); // kbps
+	const [aBitrate, setABitrate] = useState<number>(192); // kbps
+	const [muteDuringExport, setMuteDuringExport] = useState<boolean>(true);
+	const [autoMp4, setAutoMp4] = useState<boolean>(false);
+	const [exporting, setExporting] = useState<boolean>(false);
+	const [exportProgress, setExportProgress] = useState<number>(0);
+	const [transcodeProgress, setTranscodeProgress] = useState<number>(0);
+	const [exportError, setExportError] = useState<string>('');
+
+	const effectiveSize = useMemo(() => {
+		const h = parseInt(res, 10);
+		const w = Math.round(h * 16 / 9);
+		if (aspect === '16:9') return { w, h };
+		// 9:16 portrait: swap dimensions
+		return { w: h, h: w };
+	}, [aspect, res]);
 		const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
 
 		type PanelConfig = { mode: VisualizerMode; color: string; band: FrequencyBand; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources };
@@ -104,8 +143,129 @@ export default function App() {
 				</label>
 				{ready && (
 					<>
-						{!recording && <button onClick={() => { if (!canvasRef.current) return; start(canvasRef.current, getAudioStream(), 30); }}>Start Recording</button>}
-						{recording && <button onClick={() => { stop(); setTimeout(() => download(), 50); }}>Stop & Download</button>}
+						{/* Export settings */}
+						<div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+							<label>Aspect
+								<select value={aspect} onChange={e => setAspect(e.target.value as '16:9'|'9:16')}>
+									<option value='16:9'>16:9</option>
+									<option value='9:16'>9:16</option>
+								</select>
+							</label>
+							<label>Resolution
+								<select value={res} onChange={e => setRes(e.target.value as typeof res)}>
+									<option value='360'>360p</option>
+									<option value='480'>480p</option>
+									<option value='720'>720p</option>
+									<option value='1080'>1080p</option>
+								</select>
+							</label>
+							<label>FPS
+								<select value={fps} onChange={e => setFps(parseInt(e.target.value, 10) as 24|30|60)}>
+									<option value={24}>24</option>
+									<option value={30}>30</option>
+									<option value={60}>60</option>
+								</select>
+							</label>
+							<label>Codec
+								<select value={codec} onChange={e => setCodec(e.target.value as 'vp9'|'vp8')}>
+									<option value='vp9'>VP9</option>
+									<option value='vp8'>VP8</option>
+								</select>
+							</label>
+							<label>Video bitrate
+								<select value={vBitrate} onChange={e => setVBitrate(parseInt(e.target.value, 10))}>
+									<option value={2000}>2 Mbps</option>
+									<option value={4000}>4 Mbps</option>
+									<option value={6000}>6 Mbps</option>
+									<option value={8000}>8 Mbps</option>
+									<option value={12000}>12 Mbps</option>
+								</select>
+							</label>
+							<label>Audio bitrate
+								<select value={aBitrate} onChange={e => setABitrate(parseInt(e.target.value, 10))}>
+									<option value={128}>128 kbps</option>
+									<option value={160}>160 kbps</option>
+									<option value={192}>192 kbps</option>
+									<option value={256}>256 kbps</option>
+									<option value={320}>320 kbps</option>
+								</select>
+							</label>
+							<label><input type='checkbox' checked={muteDuringExport} onChange={e => setMuteDuringExport(e.target.checked)} /> Mute during export</label>
+							<label><input type='checkbox' checked={autoMp4} onChange={e => setAutoMp4(e.target.checked)} /> Auto transcode to MP4</label>
+							<span style={{ color: 'var(--muted)', fontSize: 12 }}>Target: {effectiveSize.w}×{effectiveSize.h}</span>
+						</div>
+						<button disabled={exporting} onClick={async () => {
+							if (!canvasRef.current || !audioRef.current || !analyserNode) return;
+							const audio = audioRef.current;
+							const canvas = exportCanvasRef.current;
+							if (!canvas) { setExportError('Export canvas not ready'); return; }
+							// Prepare
+							// Mute local speakers via GainNode (recording still taps MediaStreamDestination)
+							if (muteDuringExport) setPlaybackMuted(true);
+							setExporting(true); setExportProgress(0); setTranscodeProgress(0); setExportError('');
+							// Start recorder
+							const mime = codec === 'vp9' ? 'video/webm;codecs=vp9,opus' : 'video/webm;codecs=vp8,opus';
+							start(canvas, getAudioStream(), { fps, mime, audioBitsPerSecond: aBitrate * 1000, videoBitsPerSecond: vBitrate * 1000 });
+							// Play from start
+							audio.currentTime = 0;
+							await audio.play();
+							// Progress loop
+							const tick = () => {
+								if (audio.duration > 0) setExportProgress(Math.min(1, (audio.currentTime || 0) / audio.duration));
+								if (!audio.paused && !audio.ended) { requestAnimationFrame(tick); }
+							};
+							tick();
+							// Wait end reliably via RAF
+							await new Promise<void>((resolve) => {
+								const check = () => {
+									if (audio.ended || (audio.duration > 0 && (audio.currentTime || 0) >= audio.duration - 0.03)) { resolve(); }
+									else requestAnimationFrame(check);
+								};
+								check();
+							});
+							audio.pause();
+							const blob = await stop();
+							// Restore state
+							if (muteDuringExport) setPlaybackMuted(false);
+							setExportProgress(1);
+							setExporting(false);
+							// Offer downloads
+							if (autoMp4 && blob) {
+								setTranscodeProgress(0);
+								const mp4 = await transcodeToMp4({
+									preset: 'fast',
+									videoBitrateKbps: vBitrate,
+									audioBitrateKbps: aBitrate,
+									fps,
+									width: effectiveSize.w,
+									height: effectiveSize.h,
+								}, (ratio) => setTranscodeProgress(ratio));
+								if (mp4) { const url = URL.createObjectURL(mp4); const a = document.createElement('a'); a.href = url; a.download = `visualizer_${res}_${aspect.replace(':','-')}.mp4`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
+							} else if (blob) {
+								const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `visualizer_${res}_${aspect.replace(':','-')}.webm`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+							}
+						}}>
+							Export
+						</button>
+						{exporting && (
+							<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+								<div style={{ width: 160, height: 8, background: 'var(--panelBorder)', borderRadius: 4, overflow: 'hidden' }}>
+									<div style={{ width: `${Math.round(exportProgress * 100)}%`, height: '100%', background: 'var(--accent, #7aa2ff)' }} />
+								</div>
+								<span style={{ fontSize: 12, color: 'var(--muted)' }}>Exporting {Math.round(exportProgress * 100)}%</span>
+							</div>
+						)}
+						{exportError && (
+							<div style={{ color: 'var(--danger, #ff6b6b)', fontSize: 12 }}>{exportError}</div>
+						)}
+						{!exporting && autoMp4 && transcodeProgress > 0 && transcodeProgress < 1 && (
+							<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+								<div style={{ width: 160, height: 8, background: 'var(--panelBorder)', borderRadius: 4, overflow: 'hidden' }}>
+									<div style={{ width: `${Math.round(transcodeProgress * 100)}%`, height: '100%', background: '#00d08a' }} />
+								</div>
+								<span style={{ fontSize: 12, color: 'var(--muted)' }}>Transcoding {Math.round(transcodeProgress * 100)}%</span>
+							</div>
+						)}
 					</>
 				)}
 			</div>
@@ -219,12 +379,32 @@ export default function App() {
 								<input type='range' min={0} max={100} value={Math.round((dancerOverlaySources.colorFlash?.intensity ?? 1) * 100)} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), intensity: Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 100)) } }))} />
 								<span style={{ width: 36, textAlign: 'right' }}>{Math.round((dancerOverlaySources.colorFlash?.intensity ?? 1) * 100)}%</span>
 							</label>
+							<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+								Rays
+								<input type='checkbox' checked={!!dancerOverlaySources.colorFlash?.rays} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), rays: e.target.checked } }))} />
+							</label>
 						</label>
+						<div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+							<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+								Camera Elevation
+								<input type='range' min={-20} max={20} value={Math.round((dancerOverlaySources.cameraElevationPct ?? 0) * 100)} onChange={e => setDancerOverlaySources(s => ({ ...s, cameraElevationPct: Math.max(-0.2, Math.min(0.2, parseInt(e.target.value, 10) / 100)) }))} />
+								<span style={{ width: 36, textAlign: 'right' }}>{Math.round((dancerOverlaySources.cameraElevationPct ?? 0) * 100)}%</span>
+							</label>
+							<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+								Camera Tilt
+								<input type='range' min={-15} max={15} value={Math.round(dancerOverlaySources.cameraTiltDeg ?? 0)} onChange={e => setDancerOverlaySources(s => ({ ...s, cameraTiltDeg: Math.max(-15, Math.min(15, parseInt(e.target.value, 10))) }))} />
+								<span style={{ width: 36, textAlign: 'right' }}>{Math.round(dancerOverlaySources.cameraTiltDeg ?? 0)}°</span>
+							</label>
+							<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+								Disco Ball
+								<input type='checkbox' checked={!!dancerOverlaySources.discoBall?.enabled} onChange={e => setDancerOverlaySources(s => ({ ...s, discoBall: { ...(s.discoBall ?? {}), enabled: e.target.checked } }))} />
+							</label>
+						</div>
 						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
 							Choose Character
 							<select value={dancerOverlaySources.characterUrl ?? ''} onChange={e => setDancerOverlaySources(s => ({ ...s, characterUrl: e.target.value }))}>
 								<option value="">Select from /public/character</option>
-								{CHARACTER_FILES.map((c) => (
+								{charFiles.map((c) => (
 									<option key={c} value={c}>{c.replace('/character/','')}</option>
 								))}
 							</select>
@@ -239,7 +419,7 @@ export default function App() {
 								const selected: string[] = Array.from((e.target as HTMLSelectElement).selectedOptions).map(o => o.value);
 								setDancerOverlaySources(s => ({ ...s, animationUrls: selected }));
 							}}>
-								{ANIMATION_FILES.map(a => (
+								{animFiles.map(a => (
 									<option key={a} value={a}>{a.replace('/dance/','')}</option>
 								))}
 							</select>
@@ -336,22 +516,42 @@ export default function App() {
 				</div>
 			</div>
 
-			<div className="canvas-wrap">
-				{ready && analyserNode && (
-					<GridVisualizerCanvas
-						ref={canvasRef}
-						analyser={analyserNode}
-						analysers={analysers}
-						layout={layout}
-						panels={panels}
-						audio={audioEl}
-						overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
-						overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
-						overlayCountdown={{ enabled: showCountdown, position: countPos, color: countColor, effects: countFx }}
-						overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
-					/>
-				)}
-			</div>
+				<div className="canvas-wrap">
+					{ready && analyserNode && (
+						<>
+							<GridVisualizerCanvas
+								ref={canvasRef}
+								analyser={analyserNode}
+								analysers={analysers}
+								layout={layout}
+								panels={panels}
+								width={effectiveSize.w}
+								height={effectiveSize.h}
+								audio={audioEl}
+								overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
+								overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
+								overlayCountdown={{ enabled: showCountdown, position: countPos, color: countColor, effects: countFx }}
+								overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
+							/>
+							<div style={{ position: 'absolute', left: -9999, top: -9999, width: 1, height: 1, overflow: 'hidden' }}>
+								<GridVisualizerCanvas
+									ref={exportCanvasRef}
+									analyser={analyserNode}
+									analysers={analysers}
+									layout={layout}
+									panels={panels}
+									width={effectiveSize.w}
+									height={effectiveSize.h}
+									audio={audioEl}
+									overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
+									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
+									overlayCountdown={{ enabled: showCountdown, position: countPos, color: countColor, effects: countFx }}
+									overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
+								/>
+							</div>
+						</>
+					)}
+				</div>
 		</div>
 	);
 }

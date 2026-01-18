@@ -155,7 +155,8 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(functio
         }
         const sources = overlayDancer.sources ?? {};
         const key = `overlay-dancer|${sources.characterUrl ?? ''}|${(sources.animationUrls ?? []).join(',')}`;
-        renderDancer(key, sources, targetW, targetH, energy, baseFreq, timeNow)
+        const isPlaying = !!audio && !audio.paused && !audio.ended && (audio.currentTime ?? 0) > 0;
+        renderDancer(key, sources, targetW, targetH, energy, isPlaying, baseFreq, timeNow)
           .then((canvas3d) => { dancerFrameRef.current = canvas3d; })
           .catch(() => {});
       }
