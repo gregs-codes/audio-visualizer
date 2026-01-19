@@ -13,6 +13,7 @@ export function useAudioAnalyzer(){
 	const ctxRef = useRef<AudioContext|null>(null);
 	const sourceRef = useRef<MediaElementAudioSourceNode|null>(null);
 	const mediaDestRef = useRef<MediaStreamAudioDestinationNode|null>(null);
+	const playbackGainRef = useRef<GainNode|null>(null);
 		const bandAnalyserMapRef = useRef<Map<FrequencyBand, { filter: BiquadFilterNode; analyser: AnalyserNode }>>(new Map());
 
 		const init = async (file: File): Promise<AnalyserNode> => {
@@ -26,8 +27,8 @@ export function useAudioAnalyzer(){
 			analyserRef.current = analyser;
 			// Destination stream (not audible, used for recording)
 			mediaDestRef.current = ctx.createMediaStreamDestination();
-			// Connect analyser to speakers
-			analyser.connect(ctx.destination);
+			// Playback gain to control local speaker volume independently of recording
+			const gain = ctx.createGain(); gain.gain.value = 1.0; playbackGainRef.current = gain;
 		}
 
 		// Create new audio element for the provided file
@@ -48,13 +49,13 @@ export function useAudioAnalyzer(){
 		// Create source and connect to analyser and media stream destination
 		const source = ctx.createMediaElementSource(audio);
 		sourceRef.current = source;
-		if (analyserRef.current) {
-			source.connect(analyserRef.current);
-		}
+		if (analyserRef.current) { source.connect(analyserRef.current); }
 			if (mediaDestRef.current) {
 			// Tap the raw audio into the recording stream
 			source.connect(mediaDestRef.current);
 		}
+		// Route audio to speakers via playback gain
+		if (playbackGainRef.current) { source.connect(playbackGainRef.current); playbackGainRef.current.connect(ctx.destination); }
 			// Reconnect any existing band filters to the new source
 			bandAnalyserMapRef.current.forEach(({ filter }) => {
 				try { filter.disconnect(); } catch (e) { console.debug('Filter disconnect ignored', e); }
@@ -64,6 +65,9 @@ export function useAudioAnalyzer(){
 		};
 
 	const getAudioStream = () => mediaDestRef.current?.stream ?? null;
+
+	const setPlaybackMuted = (muted: boolean) => { if (playbackGainRef.current) playbackGainRef.current.gain.value = muted ? 0 : 1; };
+	const setPlaybackVolume = (vol: number) => { if (playbackGainRef.current) playbackGainRef.current.gain.value = Math.max(0, Math.min(1, vol)); };
 
 		const getBandAnalyser = (band: FrequencyBand): AnalyserNode | null => {
 			const ctx = ctxRef.current; const source = sourceRef.current;
@@ -103,5 +107,5 @@ export function useAudioAnalyzer(){
 			return analyser;
 		};
 
-		return { audioRef, analyserRef, init, getAudioStream, getBandAnalyser };
+		return { audioRef, analyserRef, init, getAudioStream, getBandAnalyser, setPlaybackMuted, setPlaybackVolume };
 }

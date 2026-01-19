@@ -1,9 +1,28 @@
 import React, { useEffect, useRef, forwardRef } from 'react';
 import type { VisualizerMode } from './visualizerModes';
+import { VISUALIZERS } from './visualizers';
+import type { DancerSources } from './dancer/DancerEngine';
+import { renderDancerWithFeatures } from './dancer/DancerEngine';
+import { renderHighGfxWithFeatures } from './highgfx/HighGfxEngine';
+import { renderHighGfxNebulaWithFeatures } from './highgfx/HighGfxNebulaEngine';
+import { renderHighGfxTunnelWithFeatures } from './highgfx/HighGfxTunnelEngine';
+import { renderHighGfxCurlWithFeatures } from './highgfx/HighGfxCurlEngine';
+import { renderHighGfxSpiralWithFeatures } from './highgfx/HighGfxSpiralEngine';
+import { renderHighGfxCellsWithFeatures } from './highgfx/HighGfxCellsEngine';
+import { renderHighGfxFogWithFeatures } from './highgfx/HighGfxFogEngine';
+import { renderHighGfxTrunkWithFeatures } from './highgfx/HighGfxTrunkEngine';
+import { renderHighGfxRingsWithFeatures } from './highgfx/HighGfxRingsEngine';
+import { renderHighGfxNetWithFeatures } from './highgfx/HighGfxNetEngine';
+import { renderHighGfxRingsTrailsWithFeatures } from './highgfx/HighGfxRingsTrailsEngine';
+import { renderHighGfxKaleidoscopeWithFeatures } from './highgfx/HighGfxKaleidoscopeEngine';
+import { renderHighGfxFlowFieldWithFeatures } from './highgfx/HighGfxFlowFieldEngine';
+import { renderHighGfxHexagonWithFeatures } from './highgfx/HighGfxHexagonEngine';
+import { renderHighGfxHexPathsWithFeatures } from './highgfx/HighGfxHexPathsEngine';
+import { AudioFeatureDetector } from '../audio/audioFeatures';
 
 export type LayoutMode = '1' | '2-horizontal' | '2-vertical' | '4';
 
-type Panel = { mode: VisualizerMode; color: string; colors?: { low: string; mid: string; high: string } };
+type Panel = { mode: VisualizerMode; color: string; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources; hgView?: 'top'|'side' };
 
 type Props = {
   analyser: AnalyserNode | null;
@@ -13,12 +32,17 @@ type Props = {
   width?: number;
   height?: number;
   audio?: HTMLAudioElement | null;
+  backgroundColor?: string; // optional solid background
+  backgroundImageUrl?: string; // optional image background (local URL)
+  backgroundFit?: 'cover'|'contain'|'stretch';
+  backgroundOpacity?: number; // 0..1
   overlayTitle?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayDescription?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayCountdown?: { enabled: boolean; position: 'lt'|'ct'|'rt'|'bl'|'br'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
+  overlayDancer?: { enabled: boolean; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; widthPct: number; sources?: DancerSources };
 };
 
-export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(function GridVisualizerCanvas({
+export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { instanceKey?: string }>(function GridVisualizerCanvas({
   analyser,
   analysers,
   layout,
@@ -29,8 +53,19 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(functio
   overlayTitle,
   overlayDescription,
   overlayCountdown,
+  overlayDancer,
+  backgroundColor,
+  backgroundImageUrl,
+  backgroundFit = 'cover',
+  backgroundOpacity = 1,
+  instanceKey = 'main',
 }, ref) {
   const innerRef = useRef<HTMLCanvasElement>(null);
+  const dancerFrameRef = useRef<HTMLCanvasElement | null>(null);
+  const hgFramesRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const bgImgRef = useRef<HTMLImageElement | null>(null);
+  const bgLoadedRef = useRef<boolean>(false);
+
   // Bridge innerRef to the forwarded ref
   useEffect(() => {
     if (!ref) return;
@@ -41,126 +76,204 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(functio
     }
   }, [ref]);
 
+  // Load background image when URL changes
+  useEffect(() => {
+    if (!backgroundImageUrl) { bgImgRef.current = null; bgLoadedRef.current = false; return; }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { bgImgRef.current = img; bgLoadedRef.current = true; };
+    img.onerror = () => { bgImgRef.current = null; bgLoadedRef.current = false; };
+    img.src = backgroundImageUrl;
+  }, [backgroundImageUrl]);
+
   useEffect(() => {
     const c = innerRef.current;
     if (!analyser || !c) return;
     const ctx = c.getContext('2d')!;
 
     const regions = computeRegions(layout, c.width, c.height);
-    const pickColor = (ratio: number, colors: Panel['colors'], fallback: string) => {
-      if (colors) {
-        if (ratio < 1/3) return colors.low;
-        if (ratio < 2/3) return colors.mid;
-        return colors.high;
-      }
-      return fallback;
+
+    // color helper
+    const hexToRgba = (hex: string, alpha = 1): string => {
+      let h = hex.replace('#', '');
+      if (h.length === 3) h = h.split('').map(ch => ch + ch).join('');
+      const r = parseInt(h.substring(0, 2), 16);
+      const g = parseInt(h.substring(2, 4), 16);
+      const b = parseInt(h.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     };
-    const drawBars = (x: number, y: number, w: number, h: number, panel: Panel, data: Uint8Array) => {
-      const bars = Math.max(32, Math.floor(w / 20));
-      const barW = w / bars;
-      for (let i = 0; i < bars; i++) {
-        const idx = Math.floor((i / bars) * data.length);
-        const v = data[idx] / 255;
-        const ratio = idx / data.length;
-        ctx.fillStyle = pickColor(ratio, panel.colors, panel.color);
-        ctx.fillRect(x + i * barW, y + h - v * h, barW - 2, v * h);
+
+    const drawOverlayText = (
+      text: string,
+      pos: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'|'ct',
+      color: string,
+      size: number,
+      energy: number,
+      timeNow: number,
+      effects?: { float?: boolean; bounce?: boolean; pulse?: boolean },
+    ) => {
+      if (!text) return;
+      ctx.save();
+      const baseSize = size * (effects?.pulse ? (1 + energy * 0.25) : 1);
+      ctx.font = `600 ${Math.round(baseSize)}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+      ctx.fillStyle = color;
+      ctx.strokeStyle = hexToRgba(color, 0.85);
+      ctx.lineWidth = 1;
+      ctx.shadowColor = hexToRgba(color, 0.3);
+      ctx.shadowBlur = 8;
+      const margin = 24;
+      let x = margin, y = margin;
+      let textAlign: CanvasTextAlign = 'left';
+      let textBaseline: CanvasTextBaseline = 'top';
+      switch (pos) {
+        case 'lt': x = margin; y = margin; textAlign='left'; textBaseline='top'; break;
+        case 'mt': x = c.width/2; y = margin; textAlign='center'; textBaseline='top'; break;
+        case 'rt': x = c.width - margin; y = margin; textAlign='right'; textBaseline='top'; break;
+        case 'lm': x = margin; y = c.height/2; textAlign='left'; textBaseline='middle'; break;
+        case 'mm': x = c.width/2; y = c.height/2; textAlign='center'; textBaseline='middle'; break;
+        case 'rm': x = c.width - margin; y = c.height/2; textAlign='right'; textBaseline='middle'; break;
+        case 'lb': x = margin; y = c.height - margin; textAlign='left'; textBaseline='bottom'; break;
+        case 'mb': x = c.width/2; y = c.height - margin; textAlign='center'; textBaseline='bottom'; break;
+        case 'rb': x = c.width - margin; y = c.height - margin; textAlign='right'; textBaseline='bottom'; break;
+        case 'ct': x = c.width/2; y = margin; textAlign='center'; textBaseline='top'; break;
       }
-    };
-    const drawWave = (x: number, y: number, w: number, h: number, color: string, time: Uint8Array) => {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      for (let i = 0; i < time.length; i++) {
-        const v = time[i] / 255;
-        const px = x + (i / time.length) * w;
-        const py = y + (1 - v) * h;
-        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-      }
-      ctx.stroke();
-    };
-    const drawCircle = (x: number, y: number, w: number, h: number, panel: Panel, data: Uint8Array) => {
-      const cx = x + w / 2; const cy = y + h / 2; const radius = Math.min(w, h) / 4;
-      const spokes = 96;
-      for (let i = 0; i < spokes; i++) {
-        const t = (i / spokes) * 2 * Math.PI;
-        const idx = Math.floor((i / spokes) * data.length);
-        const v = (data[idx] / 255) * (Math.min(w, h) / 4);
-        const ratio = idx / data.length;
-        ctx.strokeStyle = pickColor(ratio, panel.colors, panel.color);
-        ctx.lineWidth = 2;
-        const x1 = cx + Math.cos(t) * radius;
-        const y1 = cy + Math.sin(t) * radius;
-        const x2 = cx + Math.cos(t) * (radius + v);
-        const y2 = cy + Math.sin(t) * (radius + v);
-        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-      }
+      const floatOffset = effects?.float ? Math.sin(timeNow * 1.5) * 8 : 0;
+      const bounceOffset = effects?.bounce ? -energy * 20 : 0;
+      ctx.textAlign = textAlign;
+      ctx.textBaseline = textBaseline;
+      const ty = y + floatOffset + bounceOffset;
+      ctx.fillText(text, x, ty);
+      ctx.strokeText(text, x, ty);
+      ctx.restore();
     };
 
     let raf = 0;
+    const mainDetector = new AudioFeatureDetector(analyser);
+    const panelDetectors = panels.map((_, i) => new AudioFeatureDetector(analysers?.[i] || analyser));
     const render = () => {
+      const isPlaying = !!audio && !audio.paused && !audio.ended && (audio.currentTime ?? 0) > 0;
+      // Freeze visuals when audio is paused or not started
+      if (!isPlaying) {
+        raf = requestAnimationFrame(render);
+        return;
+      }
       ctx.clearRect(0, 0, c.width, c.height);
-      // Base energy for text effects
+      // Draw background first (color or image)
+      if (backgroundColor) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, backgroundOpacity));
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.restore();
+      }
+      if (bgImgRef.current && bgLoadedRef.current) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, backgroundOpacity));
+        const img = bgImgRef.current;
+        const cw = c.width, ch = c.height;
+        const iw = img.naturalWidth || img.width;
+        const ih = img.naturalHeight || img.height;
+        let dx = 0, dy = 0, dw = cw, dh = ch;
+        if (backgroundFit === 'cover') {
+          const scale = Math.max(cw / iw, ch / ih);
+          dw = Math.ceil(iw * scale);
+          dh = Math.ceil(ih * scale);
+          dx = Math.floor((cw - dw) / 2);
+          dy = Math.floor((ch - dh) / 2);
+        } else if (backgroundFit === 'contain') {
+          const scale = Math.min(cw / iw, ch / ih);
+          dw = Math.ceil(iw * scale);
+          dh = Math.ceil(ih * scale);
+          dx = Math.floor((cw - dw) / 2);
+          dy = Math.floor((ch - dh) / 2);
+        } else {
+          // stretch
+          dx = 0; dy = 0; dw = cw; dh = ch;
+        }
+        try { ctx.drawImage(img, dx, dy, dw, dh); } catch {}
+        ctx.restore();
+      }
       const baseFreq = new Uint8Array(analyser.frequencyBinCount);
       analyser.getByteFrequencyData(baseFreq);
       const energy = baseFreq.reduce((sum, v) => sum + v, 0) / (255 * Math.max(1, baseFreq.length));
       const timeNow = performance.now() / 1000;
+      // advance audio features for overlay
+      const features = mainDetector.update(1/60);
+
       panels.forEach((p, i) => {
-        const r = regions[i] || regions[0];
+        const rgn = regions[i] || regions[0];
         const panelAnalyser = analysers?.[i] || analyser;
         const freq = new Uint8Array(panelAnalyser.frequencyBinCount);
         const time = new Uint8Array(panelAnalyser.fftSize);
         panelAnalyser.getByteFrequencyData(freq);
         panelAnalyser.getByteTimeDomainData(time);
-        switch (p.mode) {
-          case 'bars': drawBars(r.x, r.y, r.w, r.h, p, freq); break;
-          case 'wave': drawWave(r.x, r.y, r.w, r.h, p.color, time); break;
-          case 'circle': drawCircle(r.x, r.y, r.w, r.h, p, freq); break;
+        const renderer = VISUALIZERS[p.mode as VisualizerMode];
+        if (p.mode === 'high-graphics' || p.mode === 'high-graphics-nebula' || p.mode === 'high-graphics-tunnel' || p.mode === 'high-graphics-curl' || p.mode === 'high-graphics-spiral' || p.mode === 'high-graphics-cells' || p.mode === 'high-graphics-fog' || p.mode === 'high-graphics-trunk' || p.mode === 'high-graphics-rings' || p.mode === 'high-graphics-rings-trails' || p.mode === 'high-graphics-kaleidoscope' || p.mode === 'high-graphics-flow-field' || p.mode === 'high-graphics-hexagon' || p.mode === 'high-graphics-hex-paths' || p.mode === 'high-graphics-net') {
+          // Draw cached HG frame synchronously to preserve overlay order
+          const cached = hgFramesRef.current.get(i);
+          if (cached) {
+            try { ctx.drawImage(cached, Math.floor(rgn.x), Math.floor(rgn.y), Math.floor(rgn.w), Math.floor(rgn.h)); } catch {}
+          }
+          // Schedule async update to refresh cache for next frame
+          const feats = panelDetectors[i].update(1/60);
+          const W = Math.floor(rgn.w); const H = Math.floor(rgn.h);
+          let promise: Promise<HTMLCanvasElement> | null = null;
+          if (p.mode === 'high-graphics') promise = renderHighGfxWithFeatures(`highgfx|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-nebula') promise = renderHighGfxNebulaWithFeatures(`nebula|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-tunnel') promise = renderHighGfxTunnelWithFeatures(`tunnel|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-curl') promise = renderHighGfxCurlWithFeatures(`curl|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-spiral') promise = renderHighGfxSpiralWithFeatures(`spiral|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-cells') promise = renderHighGfxCellsWithFeatures(`cells|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-fog') promise = renderHighGfxFogWithFeatures(`fog|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-trunk') promise = renderHighGfxTrunkWithFeatures(`trunk|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-rings') promise = renderHighGfxRingsWithFeatures(`rings|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-rings-trails') promise = renderHighGfxRingsTrailsWithFeatures(`rings-trails|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-kaleidoscope') promise = renderHighGfxKaleidoscopeWithFeatures(`kaleidoscope|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-flow-field') promise = renderHighGfxFlowFieldWithFeatures(`flow-field|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-hexagon') promise = renderHighGfxHexagonWithFeatures(`hexagon|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-hex-paths') promise = renderHighGfxHexPathsWithFeatures(`hex-paths|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-net') promise = renderHighGfxNetWithFeatures(`net|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          if (promise) {
+            promise.then((off) => { hgFramesRef.current.set(i, off); }).catch(() => {});
+          }
+        } else if (renderer) {
+          renderer({ ctx, x: rgn.x, y: rgn.y, w: rgn.w, h: rgn.h, panel: p, freq, time, energy, now: timeNow, panelKey: `panel-${i}` });
         }
       });
-      // Overlay text helper
-      const drawOverlayText = (
-        text: string,
-        pos: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'|'ct',
-        color: string,
-        size: number,
-        effects?: { float?: boolean; bounce?: boolean; pulse?: boolean }
-      ) => {
-        if (!text) return;
-        ctx.save();
-        const baseSize = size * (effects?.pulse ? (1 + energy * 0.25) : 1);
-        ctx.font = `600 ${Math.round(baseSize)}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
-        ctx.fillStyle = color;
-        ctx.shadowColor = 'rgba(0,0,0,0.35)';
-        ctx.shadowBlur = 6;
-        const margin = 24;
-        let x = margin, y = margin;
-        let textAlign: CanvasTextAlign = 'left';
-        let textBaseline: CanvasTextBaseline = 'top';
-        switch (pos) {
-          case 'lt': x = margin; y = margin; textAlign='left'; textBaseline='top'; break;
-          case 'mt': x = c.width/2; y = margin; textAlign='center'; textBaseline='top'; break;
-          case 'rt': x = c.width - margin; y = margin; textAlign='right'; textBaseline='top'; break;
-          case 'lm': x = margin; y = c.height/2; textAlign='left'; textBaseline='middle'; break;
-          case 'mm': x = c.width/2; y = c.height/2; textAlign='center'; textBaseline='middle'; break;
-          case 'rm': x = c.width - margin; y = c.height/2; textAlign='right'; textBaseline='middle'; break;
-          case 'lb': x = margin; y = c.height - margin; textAlign='left'; textBaseline='bottom'; break;
-          case 'mb': x = c.width/2; y = c.height - margin; textAlign='center'; textBaseline='bottom'; break;
-          case 'rb': x = c.width - margin; y = c.height - margin; textAlign='right'; textBaseline='bottom'; break;
-          case 'ct': x = c.width/2; y = margin; textAlign='center'; textBaseline='top'; break;
+
+      // Dancer overlay draw (cached), then request async update for next frames
+      if (overlayDancer?.enabled) {
+        const W = c.width; const H = c.height;
+        const targetW = Math.max(80, Math.min(W, Math.round(W * (overlayDancer.widthPct / 100))));
+        const targetH = Math.round(targetW * 9 / 16);
+        const margin = 16;
+        let cx = W / 2, cy = H / 2;
+        switch (overlayDancer.position) {
+          case 'lt': cx = margin + targetW/2; cy = margin + targetH/2; break;
+          case 'mt': cx = W/2; cy = margin + targetH/2; break;
+          case 'rt': cx = W - margin - targetW/2; cy = margin + targetH/2; break;
+          case 'lm': cx = margin + targetW/2; cy = H/2; break;
+          case 'mm': cx = W/2; cy = H/2; break;
+          case 'rm': cx = W - margin - targetW/2; cy = H/2; break;
+          case 'lb': cx = margin + targetW/2; cy = H - margin - targetH/2; break;
+          case 'mb': cx = W/2; cy = H - margin - targetH/2; break;
+          case 'rb': cx = W - margin - targetW/2; cy = H - margin - targetH/2; break;
         }
-        const floatOffset = effects?.float ? Math.sin(timeNow * 1.5) * 8 : 0;
-        const bounceOffset = effects?.bounce ? -energy * 20 : 0;
-        ctx.textAlign = textAlign;
-        ctx.textBaseline = textBaseline;
-        ctx.fillText(text, x, y + floatOffset + bounceOffset);
-        ctx.restore();
-      };
-      if (overlayTitle) {
-        drawOverlayText(overlayTitle.text, overlayTitle.position, overlayTitle.color, 48, overlayTitle.effects);
+        const x = Math.round(cx - targetW/2);
+        const y = Math.round(cy - targetH/2);
+        if (dancerFrameRef.current) {
+          try { ctx.drawImage(dancerFrameRef.current, x, y, targetW, targetH); } catch {}
+        }
+        const sources = overlayDancer.sources ?? {};
+        const key = `overlay-dancer|${instanceKey}|${sources.characterUrl ?? ''}|${(sources.animationUrls ?? []).join(',')}`;
+        renderDancerWithFeatures(key, sources, targetW, targetH, features, isPlaying, timeNow)
+          .then((canvas3d) => { dancerFrameRef.current = canvas3d; })
+          .catch(() => {});
       }
-      if (overlayDescription) {
-        drawOverlayText(overlayDescription.text, overlayDescription.position, overlayDescription.color, 24, overlayDescription.effects);
-      }
+
+      // Text overlays on top
+  if (overlayTitle) drawOverlayText(overlayTitle.text, overlayTitle.position, overlayTitle.color, 48, energy, timeNow, overlayTitle.effects);
+  if (overlayDescription) drawOverlayText(overlayDescription.text, overlayDescription.position, overlayDescription.color, 24, energy, timeNow, overlayDescription.effects);
       if (overlayCountdown?.enabled && audio) {
         const dur = audio.duration || 0;
         const cur = audio.currentTime || 0;
@@ -171,13 +284,14 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props>(functio
         const mapPos = (p: 'lt'|'ct'|'rt'|'bl'|'br'): 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb' => (
           p === 'lt' ? 'lt' : p === 'ct' ? 'mt' : p === 'rt' ? 'rt' : p === 'bl' ? 'lb' : 'rb'
         );
-        drawOverlayText(text, mapPos(overlayCountdown.position), overlayCountdown.color, 22, overlayCountdown.effects);
+  drawOverlayText(text, mapPos(overlayCountdown.position), overlayCountdown.color, 22, energy, timeNow, overlayCountdown.effects);
       }
+
       raf = requestAnimationFrame(render);
     };
     render();
     return () => { cancelAnimationFrame(raf); };
-  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown]);
+  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer]);
 
   return <canvas ref={innerRef} width={width} height={height} />;
 });
