@@ -8,11 +8,21 @@ import { renderHighGfxNebulaWithFeatures } from './highgfx/HighGfxNebulaEngine';
 import { renderHighGfxTunnelWithFeatures } from './highgfx/HighGfxTunnelEngine';
 import { renderHighGfxCurlWithFeatures } from './highgfx/HighGfxCurlEngine';
 import { renderHighGfxSpiralWithFeatures } from './highgfx/HighGfxSpiralEngine';
+import { renderHighGfxCellsWithFeatures } from './highgfx/HighGfxCellsEngine';
+import { renderHighGfxFogWithFeatures } from './highgfx/HighGfxFogEngine';
+import { renderHighGfxTrunkWithFeatures } from './highgfx/HighGfxTrunkEngine';
+import { renderHighGfxRingsWithFeatures } from './highgfx/HighGfxRingsEngine';
+import { renderHighGfxNetWithFeatures } from './highgfx/HighGfxNetEngine';
+import { renderHighGfxRingsTrailsWithFeatures } from './highgfx/HighGfxRingsTrailsEngine';
+import { renderHighGfxKaleidoscopeWithFeatures } from './highgfx/HighGfxKaleidoscopeEngine';
+import { renderHighGfxFlowFieldWithFeatures } from './highgfx/HighGfxFlowFieldEngine';
+import { renderHighGfxHexagonWithFeatures } from './highgfx/HighGfxHexagonEngine';
+import { renderHighGfxHexPathsWithFeatures } from './highgfx/HighGfxHexPathsEngine';
 import { AudioFeatureDetector } from '../audio/audioFeatures';
 
 export type LayoutMode = '1' | '2-horizontal' | '2-vertical' | '4';
 
-type Panel = { mode: VisualizerMode; color: string; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources };
+type Panel = { mode: VisualizerMode; color: string; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources; hgView?: 'top'|'side' };
 
 type Props = {
   analyser: AnalyserNode | null;
@@ -22,6 +32,10 @@ type Props = {
   width?: number;
   height?: number;
   audio?: HTMLAudioElement | null;
+  backgroundColor?: string; // optional solid background
+  backgroundImageUrl?: string; // optional image background (local URL)
+  backgroundFit?: 'cover'|'contain'|'stretch';
+  backgroundOpacity?: number; // 0..1
   overlayTitle?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayDescription?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayCountdown?: { enabled: boolean; position: 'lt'|'ct'|'rt'|'bl'|'br'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
@@ -40,11 +54,17 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
   overlayDescription,
   overlayCountdown,
   overlayDancer,
+  backgroundColor,
+  backgroundImageUrl,
+  backgroundFit = 'cover',
+  backgroundOpacity = 1,
   instanceKey = 'main',
 }, ref) {
   const innerRef = useRef<HTMLCanvasElement>(null);
   const dancerFrameRef = useRef<HTMLCanvasElement | null>(null);
   const hgFramesRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const bgImgRef = useRef<HTMLImageElement | null>(null);
+  const bgLoadedRef = useRef<boolean>(false);
 
   // Bridge innerRef to the forwarded ref
   useEffect(() => {
@@ -55,6 +75,16 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
       (ref as React.MutableRefObject<HTMLCanvasElement | null>).current = innerRef.current;
     }
   }, [ref]);
+
+  // Load background image when URL changes
+  useEffect(() => {
+    if (!backgroundImageUrl) { bgImgRef.current = null; bgLoadedRef.current = false; return; }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { bgImgRef.current = img; bgLoadedRef.current = true; };
+    img.onerror = () => { bgImgRef.current = null; bgLoadedRef.current = false; };
+    img.src = backgroundImageUrl;
+  }, [backgroundImageUrl]);
 
   useEffect(() => {
     const c = innerRef.current;
@@ -121,7 +151,48 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
     const mainDetector = new AudioFeatureDetector(analyser);
     const panelDetectors = panels.map((_, i) => new AudioFeatureDetector(analysers?.[i] || analyser));
     const render = () => {
+      const isPlaying = !!audio && !audio.paused && !audio.ended && (audio.currentTime ?? 0) > 0;
+      // Freeze visuals when audio is paused or not started
+      if (!isPlaying) {
+        raf = requestAnimationFrame(render);
+        return;
+      }
       ctx.clearRect(0, 0, c.width, c.height);
+      // Draw background first (color or image)
+      if (backgroundColor) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, backgroundOpacity));
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.restore();
+      }
+      if (bgImgRef.current && bgLoadedRef.current) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, backgroundOpacity));
+        const img = bgImgRef.current;
+        const cw = c.width, ch = c.height;
+        const iw = img.naturalWidth || img.width;
+        const ih = img.naturalHeight || img.height;
+        let dx = 0, dy = 0, dw = cw, dh = ch;
+        if (backgroundFit === 'cover') {
+          const scale = Math.max(cw / iw, ch / ih);
+          dw = Math.ceil(iw * scale);
+          dh = Math.ceil(ih * scale);
+          dx = Math.floor((cw - dw) / 2);
+          dy = Math.floor((ch - dh) / 2);
+        } else if (backgroundFit === 'contain') {
+          const scale = Math.min(cw / iw, ch / ih);
+          dw = Math.ceil(iw * scale);
+          dh = Math.ceil(ih * scale);
+          dx = Math.floor((cw - dw) / 2);
+          dy = Math.floor((ch - dh) / 2);
+        } else {
+          // stretch
+          dx = 0; dy = 0; dw = cw; dh = ch;
+        }
+        try { ctx.drawImage(img, dx, dy, dw, dh); } catch {}
+        ctx.restore();
+      }
       const baseFreq = new Uint8Array(analyser.frequencyBinCount);
       analyser.getByteFrequencyData(baseFreq);
       const energy = baseFreq.reduce((sum, v) => sum + v, 0) / (255 * Math.max(1, baseFreq.length));
@@ -137,7 +208,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         panelAnalyser.getByteFrequencyData(freq);
         panelAnalyser.getByteTimeDomainData(time);
         const renderer = VISUALIZERS[p.mode as VisualizerMode];
-        if (p.mode === 'high-graphics' || p.mode === 'high-graphics-nebula' || p.mode === 'high-graphics-tunnel' || p.mode === 'high-graphics-curl' || p.mode === 'high-graphics-spiral') {
+        if (p.mode === 'high-graphics' || p.mode === 'high-graphics-nebula' || p.mode === 'high-graphics-tunnel' || p.mode === 'high-graphics-curl' || p.mode === 'high-graphics-spiral' || p.mode === 'high-graphics-cells' || p.mode === 'high-graphics-fog' || p.mode === 'high-graphics-trunk' || p.mode === 'high-graphics-rings' || p.mode === 'high-graphics-rings-trails' || p.mode === 'high-graphics-kaleidoscope' || p.mode === 'high-graphics-flow-field' || p.mode === 'high-graphics-hexagon' || p.mode === 'high-graphics-hex-paths' || p.mode === 'high-graphics-net') {
           // Draw cached HG frame synchronously to preserve overlay order
           const cached = hgFramesRef.current.get(i);
           if (cached) {
@@ -152,6 +223,16 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           else if (p.mode === 'high-graphics-tunnel') promise = renderHighGfxTunnelWithFeatures(`tunnel|${instanceKey}|${i}`, W, H, feats, timeNow);
           else if (p.mode === 'high-graphics-curl') promise = renderHighGfxCurlWithFeatures(`curl|${instanceKey}|${i}`, W, H, feats, timeNow);
           else if (p.mode === 'high-graphics-spiral') promise = renderHighGfxSpiralWithFeatures(`spiral|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-cells') promise = renderHighGfxCellsWithFeatures(`cells|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-fog') promise = renderHighGfxFogWithFeatures(`fog|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-trunk') promise = renderHighGfxTrunkWithFeatures(`trunk|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-rings') promise = renderHighGfxRingsWithFeatures(`rings|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-rings-trails') promise = renderHighGfxRingsTrailsWithFeatures(`rings-trails|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-kaleidoscope') promise = renderHighGfxKaleidoscopeWithFeatures(`kaleidoscope|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-flow-field') promise = renderHighGfxFlowFieldWithFeatures(`flow-field|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-hexagon') promise = renderHighGfxHexagonWithFeatures(`hexagon|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-hex-paths') promise = renderHighGfxHexPathsWithFeatures(`hex-paths|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-net') promise = renderHighGfxNetWithFeatures(`net|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
           if (promise) {
             promise.then((off) => { hgFramesRef.current.set(i, off); }).catch(() => {});
           }
@@ -185,7 +266,6 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         }
         const sources = overlayDancer.sources ?? {};
         const key = `overlay-dancer|${instanceKey}|${sources.characterUrl ?? ''}|${(sources.animationUrls ?? []).join(',')}`;
-        const isPlaying = !!audio && !audio.paused && !audio.ended && (audio.currentTime ?? 0) > 0;
         renderDancerWithFeatures(key, sources, targetW, targetH, features, isPlaying, timeNow)
           .then((canvas3d) => { dancerFrameRef.current = canvas3d; })
           .catch(() => {});

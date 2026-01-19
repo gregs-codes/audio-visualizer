@@ -15,6 +15,12 @@ export default function App() {
 		const [mode, setMode] = useState<VisualizerMode>('vertical-bars');
 	const [theme, setTheme] = useState('dark');
 	const [color, setColor] = useState('#7aa2ff');
+	// Background controls
+	const [bgMode, setBgMode] = useState<'none'|'color'|'image'>('none');
+	const [bgColor, setBgColor] = useState<string>('#101321');
+	const [bgImageUrl, setBgImageUrl] = useState<string>('');
+	const [bgFit, setBgFit] = useState<'cover'|'contain'|'stretch'>('cover');
+	const [bgOpacity, setBgOpacity] = useState<number>(1);
 	const [ready, setReady] = useState(false);
 	const [layout, setLayout] = useState<LayoutMode>('1');
 	const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
@@ -50,6 +56,7 @@ export default function App() {
 	const [exportProgress, setExportProgress] = useState<number>(0);
 	const [exportError, setExportError] = useState<string>('');
 	const [isPlaying, setIsPlaying] = useState<boolean>(false);
+	const [progress, setProgress] = useState<number>(0); // 0..1
 	const [volume, setVolume] = useState<number>(80);
 	const wrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -67,19 +74,24 @@ export default function App() {
 			const onPlay = () => setIsPlaying(true);
 			const onPause = () => setIsPlaying(false);
 			const onEnded = () => setIsPlaying(false);
+			const onTime = () => {
+				if (a.duration > 0) setProgress(Math.min(1, (a.currentTime || 0) / a.duration));
+			};
 			a.addEventListener('play', onPlay);
 			a.addEventListener('pause', onPause);
 			a.addEventListener('ended', onEnded);
+			a.addEventListener('timeupdate', onTime);
 			return () => {
 				a.removeEventListener('play', onPlay);
 				a.removeEventListener('pause', onPause);
 				a.removeEventListener('ended', onEnded);
+				a.removeEventListener('timeupdate', onTime);
 			};
 		}, [audioRef]);
 
-		type PanelConfig = { mode: VisualizerMode; color: string; band: FrequencyBand; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources };
+		type PanelConfig = { mode: VisualizerMode; color: string; band: FrequencyBand; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources; hgView?: 'top'|'side' };
 	const defaultPanelColors = { low: '#00d08a', mid: '#7aa2ff', high: '#ff6b6b' };
-		const [panels, setPanels] = useState<PanelConfig[]>([{ mode: 'vertical-bars', color, band: 'full', colors: defaultPanelColors }]);
+		const [panels, setPanels] = useState<PanelConfig[]>([{ mode: 'vertical-bars', color, band: 'full', colors: defaultPanelColors, hgView: 'top' }]);
 
 	// Overlay text state
 	const [title, setTitle] = useState('');
@@ -123,7 +135,7 @@ export default function App() {
 						setPanels(prev => {
 							const next = [...prev];
 							if (next.length < nextCount) {
-								for (let i = next.length; i < nextCount; i++) next.push({ mode, color, band: 'full', colors: defaultPanelColors });
+								for (let i = next.length; i < nextCount; i++) next.push({ mode, color, band: 'full', colors: defaultPanelColors, hgView: 'top' });
 							} else if (next.length > nextCount) {
 								next.length = nextCount;
 							}
@@ -157,6 +169,51 @@ export default function App() {
 					<input type='color' value={color} onChange={e => setColor(e.target.value)} />
 					<span title="Accent" style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid var(--panelBorder)', background: color }}></span>
 				</label>
+				{/* Background controls */}
+				<label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+					Background
+					<select value={bgMode} onChange={e => setBgMode(e.target.value as 'none'|'color'|'image')}>
+						<option value='none'>None</option>
+						<option value='color'>Color</option>
+						<option value='image'>Image</option>
+					</select>
+				</label>
+				{bgMode === 'color' && (
+					<label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+						Color
+						<input type='color' value={bgColor} onChange={e => setBgColor(e.target.value)} />
+						<span style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid var(--panelBorder)', background: bgColor }}></span>
+						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+							Opacity
+							<input type='range' min={0} max={100} value={Math.round(bgOpacity * 100)} onChange={e => setBgOpacity(Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 100)))} />
+							<span style={{ width: 36, textAlign: 'right' }}>{Math.round(bgOpacity * 100)}%</span>
+						</label>
+					</label>
+				)}
+				{bgMode === 'image' && (
+					<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+						<div className="upload">
+							<button className="icon-btn" aria-label="Upload Background">＋ Bg</button>
+							<input type='file' accept='image/*' aria-label='Upload Background Image' onChange={e => {
+								const f = e.target.files?.[0];
+								if (f) {
+									const url = URL.createObjectURL(f);
+									setBgImageUrl(url);
+								}
+							}} />
+						</div>
+						<select value={bgFit} onChange={e => setBgFit(e.target.value as 'cover'|'contain'|'stretch')}>
+							<option value='cover'>Cover</option>
+							<option value='contain'>Contain</option>
+							<option value='stretch'>Stretch</option>
+						</select>
+						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+							Opacity
+							<input type='range' min={0} max={100} value={Math.round(bgOpacity * 100)} onChange={e => setBgOpacity(Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 100)))} />
+							<span style={{ width: 36, textAlign: 'right' }}>{Math.round(bgOpacity * 100)}%</span>
+						</label>
+					</div>
+				)}
 				{ready && (
 					<>
 						{/* Export settings */}
@@ -272,7 +329,7 @@ export default function App() {
 				{panels.map((p, i) => (
 					<div key={i} style={{ display: 'grid', gap: 6 }}>
 						<div style={{ color: 'var(--muted)' }}>Panel {i + 1}</div>
-						<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+												<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
 							<select value={p.mode} onChange={e => {
 								const val = e.target.value as VisualizerMode;
 								setPanels(old => old.map((x, idx) => idx === i ? { ...x, mode: val } : x));
@@ -291,6 +348,18 @@ export default function App() {
 								<option value='voice'>Voice</option>
 								<option value='treble'>Treble</option>
 							</select>
+													{(['high-graphics-fog','high-graphics-trunk','high-graphics-rings','high-graphics-net','high-graphics-rings-trails','high-graphics-flow-field','high-graphics-hexagon'] as VisualizerMode[]).includes(p.mode) && (
+														<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+															View
+															<select value={p.hgView ?? 'top'} onChange={e => {
+																const val = e.target.value as ('top'|'side');
+																setPanels(old => old.map((x, idx) => idx === i ? { ...x, hgView: val } : x));
+															}}>
+																<option value='top'>Top</option>
+																<option value='side'>Side (centered)</option>
+															</select>
+														</label>
+													)}
 							<input aria-label={`Panel ${i + 1} color`} type='color' value={p.color} onChange={e => {
 								const val = e.target.value;
 								setPanels(old => old.map((x, idx) => idx === i ? { ...x, color: val } : x));
@@ -517,7 +586,7 @@ export default function App() {
 				<div className="canvas-wrap overlay-controls" ref={wrapRef}>
 					{ready && analyserNode && (
 						<>
-							<GridVisualizerCanvas
+								<GridVisualizerCanvas
 								ref={canvasRef}
 								analyser={analyserNode}
 								analysers={analysers}
@@ -526,6 +595,10 @@ export default function App() {
 								width={effectiveSize.w}
 								height={effectiveSize.h}
 								audio={audioEl}
+									backgroundColor={bgMode === 'color' ? bgColor : undefined}
+									backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
+									backgroundFit={bgFit}
+									backgroundOpacity={bgOpacity}
 								instanceKey={'preview'}
 								overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
 								overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
@@ -542,6 +615,10 @@ export default function App() {
 									width={effectiveSize.w}
 									height={effectiveSize.h}
 									audio={audioEl}
+									backgroundColor={bgMode === 'color' ? bgColor : undefined}
+									backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
+									backgroundFit={bgFit}
+									backgroundOpacity={bgOpacity}
 									instanceKey={'export'}
 									overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
 									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
@@ -572,6 +649,19 @@ export default function App() {
 										</div>
 									</div>
 									<div className="right">
+										<input
+											className="timeline"
+											type='range'
+											min={0}
+											max={1000}
+											value={Math.round(progress * 1000)}
+											onChange={e => {
+												const a = audioRef.current; if (!a || a.duration <= 0) return;
+												const frac = Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 1000));
+												a.currentTime = frac * a.duration;
+												setProgress(frac);
+											}}
+										/>
 										<div className="volume" aria-label="Volume">
 											<span>Vol</span>
 											<input
