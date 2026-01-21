@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAudioAnalyzer } from './audio/useAudioAnalyzer';
+import { VUMeters } from './visualizer/VUMeters';
 import { GridVisualizerCanvas } from './visualizer/GridVisualizerCanvas';
 import type { VisualizerMode, FrequencyBand } from './visualizer/visualizerModes';
 import type { DancerSources } from './visualizer/dancer/DancerEngine';
@@ -11,7 +12,7 @@ import type { LayoutMode } from './visualizer/GridVisualizerCanvas';
 import { useCanvasRecorder } from './recorder/useCanvasRecorder';
 
 export default function App() {
-	const { audioRef, init, getAudioStream, getBandAnalyser, setPlaybackMuted } = useAudioAnalyzer();
+	const { audioRef, init, getAudioStream, getBandAnalyser, getStereoAnalysers, setPlaybackMuted } = useAudioAnalyzer();
 		const [mode, setMode] = useState<VisualizerMode>('vertical-bars');
 	const [theme, setTheme] = useState('dark');
 	const [color, setColor] = useState('#7aa2ff');
@@ -27,6 +28,9 @@ export default function App() {
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
 	const { start, stop } = useCanvasRecorder();
+
+	// Stereo analysers for VU meters
+	const stereo = useMemo(() => (ready ? getStereoAnalysers() : null), [ready, getStereoAnalysers]);
 
 	// Export settings
 	const [aspect, setAspect] = useState<'16:9'|'9:16'>('16:9');
@@ -605,6 +609,18 @@ export default function App() {
 								overlayCountdown={{ enabled: showCountdown, position: countPos, color: countColor, effects: countFx }}
 								overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
 							/>
+							{/* Futuristic VU meters: horizontal, tiny, under countdown */}
+							{stereo && (
+								<VUMeters
+									left={stereo.left}
+									right={stereo.right}
+									accentColor={color}
+									orientation="horizontal"
+									anchorPos={'rt'}
+									length={96}
+									thickness={4}
+								/>
+							)}
 							<div style={{ position: 'absolute', left: -9999, top: -9999, width: 1, height: 1, overflow: 'hidden' }}>
 								<GridVisualizerCanvas
 									ref={exportCanvasRef}

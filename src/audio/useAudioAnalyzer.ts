@@ -14,6 +14,8 @@ export function useAudioAnalyzer(){
 	const sourceRef = useRef<MediaElementAudioSourceNode|null>(null);
 	const mediaDestRef = useRef<MediaStreamAudioDestinationNode|null>(null);
 	const playbackGainRef = useRef<GainNode|null>(null);
+	const splitterRef = useRef<ChannelSplitterNode|null>(null);
+	const stereoAnalyserRef = useRef<{ left: AnalyserNode; right: AnalyserNode }|null>(null);
 		const bandAnalyserMapRef = useRef<Map<FrequencyBand, { filter: BiquadFilterNode; analyser: AnalyserNode }>>(new Map());
 
 		const init = async (file: File): Promise<AnalyserNode> => {
@@ -56,6 +58,10 @@ export function useAudioAnalyzer(){
 		}
 		// Route audio to speakers via playback gain
 		if (playbackGainRef.current) { source.connect(playbackGainRef.current); playbackGainRef.current.connect(ctx.destination); }
+			// If stereo splitter already exists (from prior init), reconnect it to the new source
+			if (splitterRef.current) {
+				try { source.connect(splitterRef.current); } catch (e) { console.debug('Splitter reconnect ignored', e); }
+			}
 			// Reconnect any existing band filters to the new source
 			bandAnalyserMapRef.current.forEach(({ filter }) => {
 				try { filter.disconnect(); } catch (e) { console.debug('Filter disconnect ignored', e); }
@@ -107,5 +113,24 @@ export function useAudioAnalyzer(){
 			return analyser;
 		};
 
-		return { audioRef, analyserRef, init, getAudioStream, getBandAnalyser, setPlaybackMuted, setPlaybackVolume };
+		// Provide stereo analysers (left/right) via a ChannelSplitterNode.
+		const getStereoAnalysers = (): { left: AnalyserNode; right: AnalyserNode } | null => {
+			const ctx = ctxRef.current; const source = sourceRef.current;
+			if (!ctx || !source) return null;
+			if (stereoAnalyserRef.current) return stereoAnalyserRef.current;
+
+			const splitter = ctx.createChannelSplitter(2);
+			splitterRef.current = splitter;
+			try { source.connect(splitter); } catch (e) { console.debug('Splitter connect ignored', e); }
+
+			const left = ctx.createAnalyser(); left.fftSize = 2048;
+			const right = ctx.createAnalyser(); right.fftSize = 2048;
+			splitter.connect(left, 0);
+			splitter.connect(right, 1);
+
+			stereoAnalyserRef.current = { left, right };
+			return stereoAnalyserRef.current;
+		};
+
+		return { audioRef, analyserRef, init, getAudioStream, getBandAnalyser, getStereoAnalysers, setPlaybackMuted, setPlaybackVolume };
 }
