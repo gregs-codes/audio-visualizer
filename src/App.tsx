@@ -13,6 +13,7 @@ import { useCanvasRecorder } from './recorder/useCanvasRecorder';
 
 export default function App() {
 	const { audioRef, init, getAudioStream, getBandAnalyser, getStereoAnalysers, setPlaybackMuted } = useAudioAnalyzer();
+	const [showSettings, setShowSettings] = useState(true);
 		const [mode, setMode] = useState<VisualizerMode>('vertical-bars');
 	const [theme, setTheme] = useState('dark');
 	const [color, setColor] = useState('#7aa2ff');
@@ -28,6 +29,9 @@ export default function App() {
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
 	const { start, stop } = useCanvasRecorder();
+	const scrollRef = useRef<HTMLDivElement | null>(null);
+	const isSyncingScroll = useRef<boolean>(false);
+	const pxPerSecond = 40;
 
 	// Stereo analysers for VU meters
 	const stereo = useMemo(() => (ready ? getStereoAnalysers() : null), [ready, getStereoAnalysers]);
@@ -73,7 +77,7 @@ export default function App() {
 	}, [aspect, res]);
 		const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
 		useEffect(() => {
-			const a = audioRef.current;
+			const a = audioEl ?? audioRef.current;
 			if (!a) return;
 			const onPlay = () => setIsPlaying(true);
 			const onPause = () => setIsPlaying(false);
@@ -91,7 +95,16 @@ export default function App() {
 				a.removeEventListener('ended', onEnded);
 				a.removeEventListener('timeupdate', onTime);
 			};
-		}, [audioRef]);
+		}, [audioEl]);
+
+	// Sync horizontal scroll position with playback progress
+	useEffect(() => {
+		const div = scrollRef.current; const a = audioRef.current;
+		if (!div || !a || !isFinite(a.duration) || a.duration <= 0) return;
+		isSyncingScroll.current = true;
+		div.scrollTo({ left: (a.currentTime || 0) * pxPerSecond });
+		requestAnimationFrame(() => { isSyncingScroll.current = false; });
+	}, [progress]);
 
 		type PanelConfig = { mode: VisualizerMode; color: string; band: FrequencyBand; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources; hgView?: 'top'|'side' };
 	const defaultPanelColors = { low: '#00d08a', mid: '#7aa2ff', high: '#ff6b6b' };
@@ -125,11 +138,14 @@ export default function App() {
 	}, [ready, panels, analyserNode, getBandAnalyser]);
 
 	return (
-		<div data-theme={theme} className="app">
+		<div data-theme={theme} className={`app ${showSettings ? 'settings-open' : ''}`}>
+			<div className="topbar">
+				<div className="brand">Audio Visualizer</div>
+				<div className="spacer" />
+				<button className="icon-btn" onClick={() => setShowSettings(s => !s)} aria-label="Toggle Settings">⚙︎ Settings</button>
+			</div>
+			<aside className={`settings-drawer ${showSettings ? 'open' : ''}`}>
 			<div className="toolbar">
-			<input type='file' accept='audio/*' onChange={async e => { const f = e.target.files?.[0]; if (f) { const a = await init(f); setAnalyserNode(a); setAudioEl(audioRef.current); setReady(true); } }} />
-				<button onClick={() => audioRef.current?.play()}>Play</button>
-				<button onClick={() => audioRef.current?.pause()}>Pause</button>
 				<label>
 					Layout
 					<select value={layout} onChange={e => {
@@ -586,6 +602,85 @@ export default function App() {
 					</div>
 				</div>
 			</div>
+			</aside>
+
+			{/* Top controlbar (above canvas) */}
+			<div className="controlbar controlbar-top" aria-label="Playback Controls" role="group">
+				<div className="left">
+					<button
+						className="icon-btn"
+						aria-label={isPlaying ? 'Pause' : 'Play'}
+						onClick={() => {
+							const a = audioRef.current; if (!a) return;
+							if (a.paused) a.play(); else a.pause();
+						}}
+					>{isPlaying ? '⏸' : '▶︎'}</button>
+					<div className="upload">
+						<button className="icon-btn" aria-label="Upload Audio">＋ Audio</button>
+						<input
+							type='file'
+							accept='audio/*'
+							aria-label='Upload Audio File'
+							onChange={async e => { const f = e.target.files?.[0]; if (f) { const a = await init(f); setAnalyserNode(a); setAudioEl(audioRef.current); setReady(true); } }}
+						/>
+					</div>
+				</div>
+				<div className="right">
+					<input
+						className="timeline"
+						type='range'
+						min={0}
+						max={1000}
+						value={Math.round(progress * 1000)}
+						onChange={e => {
+							const a = audioRef.current; if (!a || a.duration <= 0) return;
+							const frac = Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 1000));
+							a.currentTime = frac * a.duration;
+							setProgress(frac);
+						}}
+					/>
+					<div className="volume" aria-label="Volume">
+						<span>Vol</span>
+						<input
+							type='range'
+							min={0}
+							max={100}
+							step={1}
+							value={volume}
+							onChange={e => {
+								const v = parseInt(e.target.value, 10); setVolume(v);
+								const a = audioRef.current; if (a) a.volume = Math.max(0, Math.min(1, v / 100));
+							}}
+						/>
+					</div>
+				</div>
+			</div>
+
+			{/* Horizontal scrollable timeline (only show when audio is loaded) */}
+			{ready && (audioRef.current?.duration ?? 0) > 0 && (
+				<div
+					className="music-scroll"
+					ref={scrollRef}
+					onScroll={e => {
+						if (isSyncingScroll.current) return;
+						const a = audioRef.current; const div = e.currentTarget as HTMLDivElement;
+						if (!a || !isFinite(a.duration) || a.duration <= 0) return;
+						const time = div.scrollLeft / pxPerSecond;
+						a.currentTime = Math.max(0, Math.min(a.duration, time));
+						setProgress(Math.max(0, Math.min(1, (a.currentTime || 0) / a.duration)));
+					}}
+				>
+					<div
+						className="scroll-track"
+						style={{ width: `${Math.max(0, (audioRef.current?.duration || 0) * pxPerSecond)}px` }}
+					>
+						<div
+							className="scroll-thumb"
+							style={{ left: `${(audioRef.current?.currentTime || 0) * pxPerSecond}px` }}
+						/>
+					</div>
+				</div>
+			)}
 
 				<div className="canvas-wrap overlay-controls" ref={wrapRef}>
 					{ready && analyserNode && (
@@ -643,57 +738,6 @@ export default function App() {
 								/>
 							</div>
 
-								{/* Minimal overlay UI */}
-								<div className="controlbar" aria-label="Playback Controls" role="group">
-									<div className="left">
-										<button
-											className="icon-btn"
-											aria-label={isPlaying ? 'Pause' : 'Play'}
-											onClick={() => {
-												const a = audioRef.current; if (!a) return;
-												if (a.paused) a.play(); else a.pause();
-											}}
-										>{isPlaying ? '⏸' : '▶︎'}</button>
-										<div className="upload">
-											<button className="icon-btn" aria-label="Upload Audio">＋ Audio</button>
-											<input
-												type='file'
-												accept='audio/*'
-												aria-label='Upload Audio File'
-												onChange={async e => { const f = e.target.files?.[0]; if (f) { const a = await init(f); setAnalyserNode(a); setAudioEl(audioRef.current); setReady(true); } }}
-											/>
-										</div>
-									</div>
-									<div className="right">
-										<input
-											className="timeline"
-											type='range'
-											min={0}
-											max={1000}
-											value={Math.round(progress * 1000)}
-											onChange={e => {
-												const a = audioRef.current; if (!a || a.duration <= 0) return;
-												const frac = Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 1000));
-												a.currentTime = frac * a.duration;
-												setProgress(frac);
-											}}
-										/>
-										<div className="volume" aria-label="Volume">
-											<span>Vol</span>
-											<input
-												type='range'
-												min={0}
-												max={100}
-												step={1}
-												value={volume}
-												onChange={e => {
-													const v = parseInt(e.target.value, 10); setVolume(v);
-													const a = audioRef.current; if (a) a.volume = Math.max(0, Math.min(1, v / 100));
-												}}
-											/>
-										</div>
-									</div>
-								</div>
 
 								{/* Fullscreen toggle */}
 								<button
