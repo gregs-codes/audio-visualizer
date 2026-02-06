@@ -29,6 +29,13 @@ export default function App() {
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
 	const { start, stop } = useCanvasRecorder();
+	const [audioFile, setAudioFile] = useState<File | null>(null);
+	const [serverRendering, setServerRendering] = useState(false);
+	const [serverRenderError, setServerRenderError] = useState('');
+
+	// Auto export via query params (for server-side rendering through Puppeteer)
+	const [autoExport, setAutoExport] = useState<boolean>(false);
+	const [autoParams, setAutoParams] = useState<{ audioUrl?: string } | null>(null);
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const isSyncingScroll = useRef<boolean>(false);
 	const pxPerSecond = 40;
@@ -67,6 +74,96 @@ export default function App() {
 	const [progress, setProgress] = useState<number>(0); // 0..1
 	const [volume, setVolume] = useState<number>(80);
 	const wrapRef = useRef<HTMLDivElement | null>(null);
+
+	// Parse query params once
+	useEffect(() => {
+		const p = new URLSearchParams(window.location.search);
+		const ae = p.get('autoExport');
+		const audioUrl = p.get('audio');
+		if (ae === '1' || ae === 'true') setAutoExport(true);
+		if (audioUrl) setAutoParams({ audioUrl });
+		// Optional params
+		const aspectParam = p.get('aspect') as ('16:9'|'9:16') | null; if (aspectParam) setAspect(aspectParam);
+		const resParam = p.get('res') as ('360'|'480'|'720'|'1080') | null; if (resParam) setRes(resParam);
+		const fpsParam = p.get('fps'); if (fpsParam) setFps(parseInt(fpsParam, 10) as 24|30|60);
+		const vbr = p.get('vBitrate'); if (vbr) setVBitrate(parseInt(vbr, 10));
+		const abr = p.get('aBitrate'); if (abr) setABitrate(parseInt(abr, 10));
+		const codecParam = p.get('codec') as ('vp9'|'vp8') | null; if (codecParam) setCodec(codecParam);
+		const themeParam = p.get('theme'); if (themeParam) setTheme(themeParam);
+		const modeParam = p.get('mode') as VisualizerMode | null; if (modeParam) setMode(modeParam);
+	}, []);
+
+	// If audioUrl is provided, load it
+	useEffect(() => {
+		const run = async () => {
+			if (!autoParams?.audioUrl) return;
+			try {
+				const resp = await fetch(autoParams.audioUrl);
+				if (!resp.ok) throw new Error('Audio fetch failed');
+				const blob = await resp.blob();
+				const ext = (blob.type && blob.type.split('/')[1]) || 'audio';
+				const file = new File([blob], `input.${ext}`, { type: blob.type });
+				const a = await init(file);
+				setAnalyserNode(a);
+				setAudioEl(audioRef.current);
+				setReady(true);
+				// Ensure initial volume from slider
+				const el = audioRef.current; if (el) el.volume = Math.max(0, Math.min(1, volume / 100));
+			} catch (e) {
+				console.error('Auto audio init error', e);
+			}
+		};
+		run();
+	}, [autoParams]);
+
+	// Reusable export runner (used by button and auto export)
+	const runExport = async () => {
+		if (!canvasRef.current || !audioRef.current || !analyserNode) return null;
+		const audio = audioRef.current;
+		const canvas = exportCanvasRef.current;
+		if (!canvas) { setExportError('Export canvas not ready'); return null; }
+		if (muteDuringExport) setPlaybackMuted(true);
+		setExporting(true); setExportProgress(0); setExportError('');
+		const mime = codec === 'vp9' ? 'video/webm;codecs=vp9,opus' : 'video/webm;codecs=vp8,opus';
+		start(canvas, getAudioStream(), { fps, mime, audioBitsPerSecond: aBitrate * 1000, videoBitsPerSecond: vBitrate * 1000 });
+		audio.currentTime = 0;
+		await audio.play();
+		const tick = () => {
+			if (audio.duration > 0) setExportProgress(Math.min(1, (audio.currentTime || 0) / audio.duration));
+			if (!audio.paused && !audio.ended) { requestAnimationFrame(tick); }
+		};
+		tick();
+		await new Promise<void>((resolve) => {
+			const check = () => {
+				if (audio.ended || (audio.duration > 0 && (audio.currentTime || 0) >= audio.duration - 0.03)) { resolve(); }
+				else requestAnimationFrame(check);
+			};
+			check();
+		});
+		audio.pause();
+		const blob = await stop();
+		if (muteDuringExport) setPlaybackMuted(false);
+		setExportProgress(1);
+		setExporting(false);
+		return blob;
+	};
+
+	// Auto export when ready
+	useEffect(() => {
+		const run = async () => {
+			if (!autoExport) return;
+			if (!ready || !analyserNode) return;
+			const blob = await runExport();
+			if (blob) {
+				// Expose result for Puppeteer
+				(async () => {
+					const ab = await blob.arrayBuffer();
+					(Object.assign(window as any, { __exportBuffer: ab, __exportMime: blob.type, __exportDone: true }));
+				})();
+			}
+		};
+		run();
+	}, [autoExport, ready, analyserNode]);
 
 	const effectiveSize = useMemo(() => {
 		const h = parseInt(res, 10);
@@ -288,47 +385,50 @@ export default function App() {
 							<span style={{ color: 'var(--muted)', fontSize: 12 }}>Target: {effectiveSize.w}×{effectiveSize.h}</span>
 						</div>
 						<button disabled={exporting} onClick={async () => {
-							if (!canvasRef.current || !audioRef.current || !analyserNode) return;
-							const audio = audioRef.current;
-							const canvas = exportCanvasRef.current;
-							if (!canvas) { setExportError('Export canvas not ready'); return; }
-							// Prepare
-							// Mute local speakers via GainNode (recording still taps MediaStreamDestination)
-							if (muteDuringExport) setPlaybackMuted(true);
-							setExporting(true); setExportProgress(0); setExportError('');
-							// Start recorder
-							const mime = codec === 'vp9' ? 'video/webm;codecs=vp9,opus' : 'video/webm;codecs=vp8,opus';
-							start(canvas, getAudioStream(), { fps, mime, audioBitsPerSecond: aBitrate * 1000, videoBitsPerSecond: vBitrate * 1000 });
-							// Play from start
-							audio.currentTime = 0;
-							await audio.play();
-							// Progress loop
-							const tick = () => {
-								if (audio.duration > 0) setExportProgress(Math.min(1, (audio.currentTime || 0) / audio.duration));
-								if (!audio.paused && !audio.ended) { requestAnimationFrame(tick); }
-							};
-							tick();
-							// Wait end reliably via RAF
-							await new Promise<void>((resolve) => {
-								const check = () => {
-									if (audio.ended || (audio.duration > 0 && (audio.currentTime || 0) >= audio.duration - 0.03)) { resolve(); }
-									else requestAnimationFrame(check);
-								};
-								check();
-							});
-							audio.pause();
-							const blob = await stop();
-							// Restore state
-							if (muteDuringExport) setPlaybackMuted(false);
-							setExportProgress(1);
-							setExporting(false);
-							// Download WebM directly
+							const blob = await runExport();
 							if (blob) {
 								const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `visualizer_${res}_${aspect.replace(':','-')}.webm`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 							}
 						}}>
 							Export
 						</button>
+						<button disabled={serverRendering || !ready} onClick={async () => {
+							setServerRendering(true); setServerRenderError('');
+							try {
+								let file = audioFile;
+								if (!file) {
+									const src = audioRef.current?.src;
+									if (src) {
+										const resp = await fetch(src); const blob = await resp.blob();
+										file = new File([blob], `audio.${(blob.type && blob.type.split('/')[1]) || 'bin'}`, { type: blob.type });
+									}
+								}
+								if (!file) throw new Error('No audio file loaded');
+								const fd = new FormData();
+								fd.append('file', file);
+								fd.append('aspect', aspect);
+								fd.append('res', res);
+								fd.append('fps', String(fps));
+								fd.append('codec', codec);
+								fd.append('vBitrate', String(vBitrate));
+								fd.append('aBitrate', String(aBitrate));
+								fd.append('theme', theme);
+								fd.append('mode', mode);
+								const resp = await fetch('http://localhost:9090/render', { method: 'POST', body: fd });
+								if (!resp.ok) throw new Error(`Server render failed (${resp.status})`);
+								const out = await resp.blob();
+								const url = URL.createObjectURL(out); const a = document.createElement('a'); a.href = url; a.download = `visualizer_server_${res}_${aspect.replace(':','-')}.webm`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+							} catch (e:any) {
+								setServerRenderError(String(e?.message || e));
+							} finally {
+								setServerRendering(false);
+							}
+						}}>
+							{serverRendering ? 'Rendering…' : 'Render on Server'}
+						</button>
+						{serverRenderError && (
+							<div style={{ color: 'var(--danger, #ff6b6b)', fontSize: 12 }}>{serverRenderError}</div>
+						)}
 						{exporting && (
 							<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
 								<div style={{ width: 160, height: 8, background: 'var(--panelBorder)', borderRadius: 4, overflow: 'hidden' }}>
@@ -621,7 +721,7 @@ export default function App() {
 							type='file'
 							accept='audio/*'
 							aria-label='Upload Audio File'
-							onChange={async e => { const f = e.target.files?.[0]; if (f) { const a = await init(f); setAnalyserNode(a); setAudioEl(audioRef.current); setReady(true); } }}
+							onChange={async e => { const f = e.target.files?.[0]; if (f) { setAudioFile(f); const a = await init(f); setAnalyserNode(a); setAudioEl(audioRef.current); setReady(true); } }}
 						/>
 					</div>
 				</div>

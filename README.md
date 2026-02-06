@@ -1,3 +1,42 @@
+# Audio Visualizer
+
+## Server‑side rendering service
+
+This repo includes a minimal render server that launches a headless browser, loads the app, and records a WebM export. It exposes a single endpoint:
+
+- POST `/render` (multipart/form-data)
+	- `file`: required, the audio file
+	- optional fields: `aspect` (`16:9`|`9:16`), `res` (`360`|`480`|`720`|`1080`), `fps` (`24`|`30`|`60`), `codec` (`vp9`|`vp8`), `vBitrate` (kbps), `aBitrate` (kbps)
+
+### Run locally
+
+In one terminal, run the app (Vite dev server):
+
+```bash
+npm run dev
+```
+
+In another terminal, start the render server (optionally point to your app URL with `APP_URL`):
+
+```bash
+APP_URL=http://localhost:5174/ npm run server
+```
+
+Then POST an audio file (example with curl):
+
+```bash
+curl -fS -X POST \
+	-F "file=@/path/to/song.mp3" \
+	-F aspect=16:9 -F res=720 -F fps=30 -F codec=vp9 -F vBitrate=8000 -F aBitrate=192 \
+	http://localhost:9090/render -o visualizer.webm
+```
+
+The server encodes the posted audio as a data URL and navigates the app with `?autoExport=1&audio=<dataurl>&…`. The app records the export canvas and returns the resulting WebM.
+
+Notes:
+- By default, it targets `http://localhost:5173`. If Vite chose another port, set `APP_URL` to that URL.
+- For production, host the built app and set `APP_URL` to the public URL (e.g., `APP_URL=https://your-host/app/`).
+
 # Audio Visualizer (React + Vite)
 
 Interactive audio visualizer that accepts WAV/MP3 files and renders 1/2/4-section layouts. Supports recording the canvas with audio to a WebM video you can download on demand.
