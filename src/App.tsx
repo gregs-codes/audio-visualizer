@@ -64,16 +64,63 @@ export default function App() {
 	const [res, setRes] = useState<'360'|'480'|'720'|'1080'>('720');
 	const [fps, setFps] = useState<24|30|60>(30);
 	const [codec, setCodec] = useState<'vp9'|'vp8'>('vp9');
-	const [vBitrate, setVBitrate] = useState<number>(8000); // kbps
+	const [outputFormat, setOutputFormat] = useState<'mp4'|'webm'>('webm');
+	const [vBitrate, setVBitrate] = useState<number>(4000); // kbps
 	const [aBitrate, setABitrate] = useState<number>(192); // kbps
 	const [muteDuringExport, setMuteDuringExport] = useState<boolean>(true);
-	const [exporting, setExporting] = useState<boolean>(false);
-	const [exportProgress, setExportProgress] = useState<number>(0);
-	const [exportError, setExportError] = useState<string>('');
 	const [isPlaying, setIsPlaying] = useState<boolean>(false);
 	const [progress, setProgress] = useState<number>(0); // 0..1
 	const [volume, setVolume] = useState<number>(80);
 	const wrapRef = useRef<HTMLDivElement | null>(null);
+	const [audioFile, setAudioFile] = useState<File | null>(null);
+
+	// Server render state
+	const [serverRendering, setServerRendering] = useState(false);
+	const [serverProgress, setServerProgress] = useState(0);
+	const [serverStatus, setServerStatus] = useState('');
+	const [serverError, setServerError] = useState('');
+	const [renderedFiles, setRenderedFiles] = useState<{ name: string; size: number; date: string }[]>([]);
+
+	// Live server logs
+	const [showLogs, setShowLogs] = useState(false);
+	const [serverLogs, setServerLogs] = useState<{ ts: number; level: string; text: string }[]>([]);
+	const logEndRef = useRef<HTMLDivElement | null>(null);
+	const logSourceRef = useRef<EventSource | null>(null);
+
+	useEffect(() => {
+		if (showLogs && !logSourceRef.current) {
+			const es = new EventSource('http://localhost:9090/logs');
+			es.onmessage = (e) => {
+				try {
+					const entry = JSON.parse(e.data);
+					setServerLogs(prev => {
+						const next = [...prev, entry];
+						return next.length > 300 ? next.slice(-300) : next;
+					});
+				} catch {}
+			};
+			es.onerror = () => {};
+			logSourceRef.current = es;
+		} else if (!showLogs && logSourceRef.current) {
+			logSourceRef.current.close();
+			logSourceRef.current = null;
+		}
+		return () => {
+			if (logSourceRef.current) { logSourceRef.current.close(); logSourceRef.current = null; }
+		};
+	}, [showLogs]);
+
+	useEffect(() => {
+		if (showLogs) logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+	}, [serverLogs, showLogs]);
+
+	const fetchRenderedFiles = async () => {
+		try {
+			const resp = await fetch('http://localhost:9090/rendered/list');
+			if (resp.ok) setRenderedFiles(await resp.json());
+		} catch {}
+	};
+	useEffect(() => { fetchRenderedFiles(); }, []);
 
 	// Parse query params once
 	useEffect(() => {
@@ -172,6 +219,182 @@ export default function App() {
 		// 9:16 portrait: swap dimensions
 		return { w: h, h: w };
 	}, [aspect, res]);
+
+	// Auto-export when launched with query params from server-side renderer.
+	// Expected params: autoExport=1, audio=<url>, aspect, res, fps, codec, vBitrate, aBitrate, mode, theme
+	useEffect(() => {
+		const q = new URLSearchParams(window.location.search);
+		if (q.get('autoExport') !== '1') return;
+		// Prevent double-execution from React Strict Mode
+		if ((window as any).__autoExportStarted) return;
+		(window as any).__autoExportStarted = true;
+		(async () => {
+			try {
+				setShowSettings(false);
+				const qp = (name: string, fallback: string) => q.get(name) || fallback;
+				const audioUrl = q.get('audio');
+				const aspectQ = qp('aspect', '16:9') as '16:9'|'9:16';
+				const resQ = (qp('res', '720') as '360'|'480'|'720'|'1080');
+				const fpsQ = parseInt(qp('fps', '30'), 10) as 24|30|60;
+				const codecQ = (qp('codec', 'vp9') as 'vp9'|'vp8');
+				const vBitQ = parseInt(qp('vBitrate', '8000'), 10);
+				const aBitQ = parseInt(qp('aBitrate', '192'), 10);
+				const modeQ = q.get('mode') as VisualizerMode | null;
+				const themeQ = q.get('theme');
+				const characterQ = q.get('character');
+				const animationsQ = q.get('animations'); // comma-separated
+				const dancerSizeQ = q.get('dancerSize');
+				const dancerPosQ = q.get('dancerPos');
+				// Text overlay params
+				const titleQ = q.get('title');
+				const titlePosQ = q.get('titlePos');
+				const titleColorQ = q.get('titleColor');
+				const titleFxQ = { float: q.get('titleFloat') === '1', bounce: q.get('titleBounce') === '1', pulse: q.get('titlePulse') === '1' };
+				const descQ = q.get('desc');
+				const descPosQ = q.get('descPos');
+				const descColorQ = q.get('descColor');
+				const descFxQ = { float: q.get('descFloat') === '1', bounce: q.get('descBounce') === '1', pulse: q.get('descPulse') === '1' };
+
+				setAspect(aspectQ);
+				setRes(resQ);
+				setFps(fpsQ);
+				setCodec(codecQ);
+				setVBitrate(isFinite(vBitQ) ? vBitQ : 8000);
+				setABitrate(isFinite(aBitQ) ? aBitQ : 192);
+				if (themeQ) setTheme(themeQ);
+				if (modeQ) {
+					setMode(modeQ);
+					setPanels(prev => prev.map(p => ({ ...p, mode: modeQ })));
+				}
+
+				// Text overlays from query params
+				if (titleQ) {
+					setTitle(titleQ);
+					if (titlePosQ) setTitlePos(titlePosQ as any);
+					if (titleColorQ) setTitleColor(titleColorQ.startsWith('#') ? titleColorQ : '#' + titleColorQ);
+					setTitleFx(titleFxQ);
+				}
+				if (descQ) {
+					setDesc(descQ);
+					if (descPosQ) setDescPos(descPosQ as any);
+					if (descColorQ) setDescColor(descColorQ.startsWith('#') ? descColorQ : '#' + descColorQ);
+					setDescFx(descFxQ);
+				}
+
+				// Dancer overlay from query params
+				if (characterQ || animationsQ) {
+					setShowDancer(true);
+					const src: DancerSources = {};
+					if (characterQ) src.characterUrl = characterQ;
+					if (animationsQ) src.animationUrls = animationsQ.split(',').map(s => s.trim()).filter(Boolean);
+					setDancerOverlaySources(src);
+					if (dancerSizeQ) setDancerSize(Math.max(10, Math.min(100, parseInt(dancerSizeQ, 10) || 40)));
+					if (dancerPosQ) setDancerPos(dancerPosQ as any);
+				}
+
+				if (!audioUrl) throw new Error('Missing audio URL');
+				// Load audio from URL by creating a File to reuse existing init()
+				const resp = await fetch(audioUrl);
+				if (!resp.ok) throw new Error(`Audio fetch failed: ${resp.status}`);
+				const mime = resp.headers.get('content-type') || 'audio/mpeg';
+				const buf = await resp.arrayBuffer();
+				const file = new File([buf], 'input.' + (mime.split('/')[1] || 'bin'), { type: mime });
+
+				const analyser = await init(file);
+				setAnalyserNode(analyser);
+				const a = audioRef.current;
+				setAudioEl(a || null);
+				setReady(true);
+				if (!a) throw new Error('Audio element not ready');
+
+				// Wait for React to re-render and mount the export canvas
+				let canvas: HTMLCanvasElement | null = null;
+				for (let i = 0; i < 200; i++) {
+					await new Promise(r => requestAnimationFrame(r));
+					canvas = exportCanvasRef.current;
+					if (canvas) break;
+				}
+				if (!canvas) throw new Error('Export canvas not ready after waiting');
+
+				// --- Prebuffer: let the visualizer warm up before recording ---
+				// Render idle frames so shaders compile, textures load, and 3D models settle.
+				console.log('[auto-export] Prebuffering (warming up renderer)...');
+				(window as any).__exportPrebuffering = true;
+				const PREBUFFER_FRAMES = 300; // ~5 seconds at 60fps
+				for (let i = 0; i < PREBUFFER_FRAMES; i++) {
+					await new Promise(r => requestAnimationFrame(r));
+				}
+				// Additional time-based wait to ensure heavy assets (FBX models, textures) finish loading
+				await new Promise(r => setTimeout(r, 3000));
+				(window as any).__exportPrebuffering = false;
+				console.log('[auto-export] Prebuffer done, starting recording');
+
+				// Mute local playback so Puppeteer doesn't need audio output
+				setPlaybackMuted(true);
+
+				// Fallback codecs for headless Chrome (VP9 may not be available)
+				const mimePrefs = codecQ === 'vp9'
+					? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+					: ['video/webm;codecs=vp8,opus', 'video/webm'];
+				let mimeOut = '';
+				for (const m of mimePrefs) {
+					if (MediaRecorder.isTypeSupported(m)) { mimeOut = m; break; }
+				}
+				console.log('[auto-export] Using MIME:', mimeOut || '(default)');
+
+				// Start recording first, then wait for the recorder to settle before playing audio.
+				// This ensures the video pipeline is fully primed so audio and video are in sync from frame 1.
+				// We record extra silent frames that the server will trim with ffmpeg.
+				const RECORDER_PREBUFFER_SECS = 3;
+				start(canvas, getAudioStream(), { fps: fpsQ, mime: mimeOut || undefined, audioBitsPerSecond: aBitQ * 1000, videoBitsPerSecond: vBitQ * 1000 });
+				console.log(`[auto-export] Recorder started, prebuffering ${RECORDER_PREBUFFER_SECS}s of silent frames...`);
+				// Record silent frames to let the encoder fully warm up (these will be trimmed by server)
+				await new Promise(r => setTimeout(r, RECORDER_PREBUFFER_SECS * 1000));
+				console.log('[auto-export] Pipeline ready, starting audio playback');
+				// Expose the trim offset so the server knows how much to cut
+				(window as any).__exportTrimStart = RECORDER_PREBUFFER_SECS;
+				(window as any).__exportProgress = 0;
+				a.currentTime = 0;
+				await a.play();
+				console.log('[auto-export] Playback started, duration:', a.duration);
+				await new Promise<void>((resolve) => {
+					const startTime = Date.now();
+					const maxWaitMs = (a.duration + 5) * 1000; // duration + 5s safety margin
+					const check = () => {
+						if (a.duration > 0) {
+							const p = Math.min(1, (a.currentTime || 0) / a.duration);
+							(window as any).__exportProgress = p;
+						}
+						const elapsed = Date.now() - startTime;
+						if (a.ended || (a.duration > 0 && (a.currentTime || 0) >= a.duration - 0.05) || elapsed > maxWaitMs) {
+							console.log('[auto-export] Playback finished, ended:', a.ended, 'currentTime:', a.currentTime, 'elapsed:', elapsed);
+							resolve();
+						}
+						else requestAnimationFrame(check);
+					};
+					check();
+				});
+				a.pause();
+				console.log('[auto-export] Stopping recorder...');
+				const blob = await stop();
+				console.log('[auto-export] Recorder stopped, blob size:', blob?.size);
+
+
+				if (!blob) throw new Error('No export blob');
+				const ab = await blob.arrayBuffer();
+				console.log('[auto-export] Buffer ready, size:', ab.byteLength);
+				// Expose to Puppeteer
+				(Object.assign(window as any, {
+					__exportBuffer: ab,
+					__exportMime: blob.type || 'video/webm',
+					__exportDone: true,
+				}));
+			} catch (err) {
+				console.error('Auto-export failed:', err);
+				(Object.assign(window as any, { __exportDone: false, __exportError: String(err) }));
+			}
+		})();
+	}, []);
 		const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
 		useEffect(() => {
 			const a = audioEl ?? audioRef.current;
@@ -239,6 +462,36 @@ export default function App() {
 			<div className="topbar">
 				<div className="brand">Audio Visualizer</div>
 				<div className="spacer" />
+				<div style={{ position: 'relative' }}>
+					<button className="icon-btn" onClick={() => setShowLogs(s => !s)} aria-label="Server Logs"
+						style={{ color: showLogs ? 'var(--accent, #7aa2ff)' : undefined }}>
+						📋 Logs
+					</button>
+					{showLogs && (
+						<div style={{
+							position: 'absolute', top: '100%', right: 0, zIndex: 1000,
+							width: 480, maxHeight: 360, overflow: 'hidden',
+							background: 'var(--panelBg, #181a20)', border: '1px solid var(--panelBorder, #333)',
+							borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,.5)',
+							display: 'flex', flexDirection: 'column',
+						}}>
+							<div style={{ padding: '6px 10px', borderBottom: '1px solid var(--panelBorder, #333)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+								<span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Server Logs</span>
+								<button onClick={() => setServerLogs([])} style={{ fontSize: 11, background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>Clear</button>
+							</div>
+							<div style={{ flex: 1, overflowY: 'auto', padding: '4px 8px', fontFamily: 'monospace', fontSize: 11, lineHeight: 1.5 }}>
+								{serverLogs.length === 0 && <div style={{ color: 'var(--muted)', padding: 8, fontStyle: 'italic' }}>No logs yet — waiting for server activity…</div>}
+								{serverLogs.map((l, i) => (
+									<div key={i} style={{ color: l.level === 'error' ? 'var(--danger, #ff6b6b)' : 'var(--text, #ccc)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+										<span style={{ color: 'var(--muted)', marginRight: 6 }}>{new Date(l.ts).toLocaleTimeString()}</span>
+										{l.text}
+									</div>
+								))}
+								<div ref={logEndRef} />
+							</div>
+						</div>
+					)}
+				</div>
 				<button className="icon-btn" onClick={() => setShowSettings(s => !s)} aria-label="Toggle Settings">⚙︎ Settings</button>
 			</div>
 			<aside className={`settings-drawer ${showSettings ? 'open' : ''}`}>
@@ -356,10 +609,10 @@ export default function App() {
 									<option value={60}>60</option>
 								</select>
 							</label>
-							<label>Codec
-								<select value={codec} onChange={e => setCodec(e.target.value as 'vp9'|'vp8')}>
-									<option value='vp9'>VP9</option>
-									<option value='vp8'>VP8</option>
+							<label>Format
+								<select value={outputFormat} onChange={e => setOutputFormat(e.target.value as 'mp4'|'webm')}>
+									<option value='mp4'>MP4 (H.264)</option>
+									<option value='webm'>WebM (VP9)</option>
 								</select>
 							</label>
 							<label>Video bitrate
@@ -392,43 +645,6 @@ export default function App() {
 						}}>
 							Export
 						</button>
-						<button disabled={serverRendering || !ready} onClick={async () => {
-							setServerRendering(true); setServerRenderError('');
-							try {
-								let file = audioFile;
-								if (!file) {
-									const src = audioRef.current?.src;
-									if (src) {
-										const resp = await fetch(src); const blob = await resp.blob();
-										file = new File([blob], `audio.${(blob.type && blob.type.split('/')[1]) || 'bin'}`, { type: blob.type });
-									}
-								}
-								if (!file) throw new Error('No audio file loaded');
-								const fd = new FormData();
-								fd.append('file', file);
-								fd.append('aspect', aspect);
-								fd.append('res', res);
-								fd.append('fps', String(fps));
-								fd.append('codec', codec);
-								fd.append('vBitrate', String(vBitrate));
-								fd.append('aBitrate', String(aBitrate));
-								fd.append('theme', theme);
-								fd.append('mode', mode);
-								const resp = await fetch('http://localhost:9090/render', { method: 'POST', body: fd });
-								if (!resp.ok) throw new Error(`Server render failed (${resp.status})`);
-								const out = await resp.blob();
-								const url = URL.createObjectURL(out); const a = document.createElement('a'); a.href = url; a.download = `visualizer_server_${res}_${aspect.replace(':','-')}.webm`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-							} catch (e:any) {
-								setServerRenderError(String(e?.message || e));
-							} finally {
-								setServerRendering(false);
-							}
-						}}>
-							{serverRendering ? 'Rendering…' : 'Render on Server'}
-						</button>
-						{serverRenderError && (
-							<div style={{ color: 'var(--danger, #ff6b6b)', fontSize: 12 }}>{serverRenderError}</div>
-						)}
 						{exporting && (
 							<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
 								<div style={{ width: 160, height: 8, background: 'var(--panelBorder)', borderRadius: 4, overflow: 'hidden' }}>
@@ -440,9 +656,174 @@ export default function App() {
 						{exportError && (
 							<div style={{ color: 'var(--danger, #ff6b6b)', fontSize: 12 }}>{exportError}</div>
 						)}
-						{/* MP4 transcode progress removed */}
+						{/* Server Render button + progress circle */}
+						<div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+							<button disabled={serverRendering || !audioFile} onClick={async () => {
+								if (!audioFile) return;
+								setServerRendering(true); setServerProgress(0); setServerError(''); setServerStatus('uploading');
+								try {
+									const fd = new FormData();
+									fd.append('file', audioFile);
+									fd.append('aspect', aspect);
+									fd.append('res', res);
+									fd.append('fps', String(fps));
+									fd.append('codec', codec);								fd.append('format', outputFormat);									fd.append('vBitrate', String(vBitrate));
+									fd.append('aBitrate', String(aBitrate));
+									fd.append('mode', panels[0]?.mode || mode);
+									fd.append('theme', theme);
+									// Dancer params
+									if (showDancer && dancerOverlaySources.characterUrl) {
+										fd.append('character', dancerOverlaySources.characterUrl);
+										if (dancerOverlaySources.animationUrls?.length)
+											fd.append('animations', dancerOverlaySources.animationUrls.join(','));
+										fd.append('dancerSize', String(dancerSize));
+										fd.append('dancerPos', dancerPos);
+									}
+									// Text overlays
+									if (title) { fd.append('title', title); fd.append('titlePos', titlePos); fd.append('titleColor', titleColor); if (titleFx.float) fd.append('titleFloat', '1'); if (titleFx.bounce) fd.append('titleBounce', '1'); if (titleFx.pulse) fd.append('titlePulse', '1'); }
+									if (desc) { fd.append('desc', desc); fd.append('descPos', descPos); fd.append('descColor', descColor); if (descFx.float) fd.append('descFloat', '1'); if (descFx.bounce) fd.append('descBounce', '1'); if (descFx.pulse) fd.append('descPulse', '1'); }
+
+									const resp = await fetch('http://localhost:9090/render', { method: 'POST', body: fd });
+									const reader = resp.body?.getReader();
+									if (!reader) throw new Error('No response stream');
+									const decoder = new TextDecoder();
+									let buf = '';
+									const processLines = (text: string) => {
+										buf += text;
+										const lines = buf.split('\n');
+										buf = lines.pop() || '';
+										for (const line of lines) {
+											if (!line.startsWith('data: ')) continue;
+											try {
+												const evt = JSON.parse(line.slice(6));
+												if (evt.status) setServerStatus(evt.status);
+												if (evt.progress !== undefined) setServerProgress(evt.progress);
+												if (evt.status === 'error') { setServerError(evt.detail || evt.error || 'Render failed'); setServerRendering(false); return true; }
+												if (evt.status === 'done') { setServerProgress(100); setServerRendering(false); fetchRenderedFiles(); return true; }
+											} catch {}
+										}
+										return false;
+									};
+									let finished = false;
+									while (true) {
+										const { done, value } = await reader.read();
+										if (done) break;
+										finished = processLines(decoder.decode(value, { stream: true }));
+										if (finished) break;
+									}
+									// Process any remaining data in the buffer (clear buf first to avoid double-append)
+									if (!finished && buf.trim()) {
+										const remaining = buf;
+										buf = '';
+										finished = processLines(remaining + '\n');
+									}
+									if (!finished) {
+										setServerRendering(false);
+										fetchRenderedFiles();
+									}
+								} catch (e: any) {
+									setServerError(String(e.message || e));
+									setServerRendering(false);
+								}
+							}} style={{ fontWeight: 600 }}>
+								{serverRendering
+								? (serverStatus === 'uploading' ? 'Uploading…'
+									: serverStatus === 'loading' ? 'Loading…'
+									: serverStatus === 'buffering' ? 'Buffering…'
+									: serverStatus === 'recording' ? 'Recording…'
+									: serverStatus === 'encoding' ? 'Encoding…'
+									: serverStatus === 'transcoding' ? 'Transcoding…'
+									: serverStatus === 'saving' ? 'Saving…'
+									: 'Processing…')
+								: '🎬 Render on Server'}
+							</button>
+							{serverRendering && (() => {
+								const phases = [
+									{ key: 'uploading', icon: '⬆️', label: 'Upload' },
+									{ key: 'loading', icon: '📦', label: 'Load' },
+									{ key: 'buffering', icon: '⏳', label: 'Buffer' },
+									{ key: 'recording', icon: '🔴', label: 'Record' },
+									{ key: 'encoding', icon: '📤', label: 'Encode' },
+									{ key: 'transcoding', icon: '🔄', label: 'Convert' },
+									{ key: 'saving', icon: '💾', label: 'Save' },
+								];
+								const currentIdx = phases.findIndex(p => p.key === serverStatus);
+								const phaseColors: Record<string, string> = {
+									uploading: '#7aa2ff', loading: '#7aa2ff', buffering: '#ffa64d',
+									recording: '#ff5555', encoding: '#aa77ff',
+									transcoding: '#55cc77', saving: '#55cc77',
+								};
+								const color = phaseColors[serverStatus] || '#7aa2ff';
+								const isIndeterminate = serverStatus !== 'recording';
+								const circ = 2 * Math.PI * 24;
+								return (
+									<div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+										{/* Phase steps */}
+										<div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
+											{phases.map((p, i) => (
+												<div key={p.key} style={{
+													width: 8, height: 8, borderRadius: '50%',
+													background: i < currentIdx ? '#55cc77'
+														: i === currentIdx ? color
+														: 'var(--panelBorder, #333)',
+													transition: 'background 0.3s',
+													boxShadow: i === currentIdx ? `0 0 6px ${color}` : 'none',
+												}} title={p.label} />
+											))}
+										</div>
+										{/* Circular progress */}
+										<div style={{ position: 'relative', width: 56, height: 56 }}>
+											<svg width={56} height={56} viewBox="0 0 56 56">
+												<circle cx={28} cy={28} r={24} fill="none" stroke="var(--panelBorder, #333)" strokeWidth={4} />
+												{isIndeterminate ? (
+													<circle cx={28} cy={28} r={24} fill="none" stroke={color} strokeWidth={4}
+														strokeDasharray={`${circ * 0.25} ${circ * 0.75}`}
+														strokeLinecap="round"
+														transform="rotate(-90 28 28)"
+														style={{ animation: 'spin 1s linear infinite', transformOrigin: '28px 28px' }}
+													/>
+												) : (
+													<circle cx={28} cy={28} r={24} fill="none" stroke={color} strokeWidth={4}
+														strokeDasharray={`${circ}`}
+														strokeDashoffset={`${circ * (1 - serverProgress / 100)}`}
+														strokeLinecap="round"
+														transform="rotate(-90 28 28)"
+														style={{ transition: 'stroke-dashoffset 0.3s ease' }}
+													/>
+												)}
+											</svg>
+											<span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
+												{isIndeterminate ? phases[currentIdx]?.icon || '⏳' : `${serverProgress}%`}
+											</span>
+										</div>
+									</div>
+								);
+							})()}
+							{serverError && (
+								<div style={{ color: 'var(--danger, #ff6b6b)', fontSize: 12 }}>{serverError}</div>
+							)}
+						</div>
 					</>
 				)}
+				{/* Rendered files list – always visible */}
+				<div style={{ marginTop: 8 }}>
+					<div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 }}>Rendered Files</div>
+					{renderedFiles.length === 0 ? (
+						<div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>No rendered files yet</div>
+					) : (
+						<div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+							{renderedFiles.map(f => (
+								<div key={f.name} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
+									<a href={`/rendered/${f.name}`} download style={{ color: 'var(--accent, #7aa2ff)', textDecoration: 'none' }}>
+										{f.name}
+									</a>
+									<span style={{ color: 'var(--muted)' }}>{(f.size / 1048576).toFixed(1)} MB</span>
+									<span style={{ color: 'var(--muted)' }}>{new Date(f.date).toLocaleString()}</span>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
 			</div>
 
 			<div className="toolbar" style={{ gap: 12 }}>
