@@ -3,6 +3,8 @@ ai-mechanic/
 threejs-react-app/
 v0-monsters-nightmare/
 *
+!server/
+!server/**
 # Logs
 logs
 *.log
@@ -27,3 +29,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+server/.server_pid
