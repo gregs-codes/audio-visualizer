@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAudioAnalyzer } from './audio/useAudioAnalyzer';
-import { VUMeters } from './visualizer/VUMeters';
 import { GridVisualizerCanvas } from './visualizer/GridVisualizerCanvas';
 import type { VisualizerMode, FrequencyBand } from './visualizer/visualizerModes';
 import type { DancerSources } from './visualizer/dancer/DancerEngine';
@@ -1214,19 +1213,8 @@ export default function App() {
 								overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
 								overlayCountdown={{ enabled: showCountdown, position: countPos, color: countColor, effects: countFx }}
 								overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
+								overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
 							/>
-							{/* Futuristic VU meters: horizontal, tiny, under countdown */}
-							{stereo && (
-								<VUMeters
-									left={stereo.left}
-									right={stereo.right}
-									accentColor={color}
-									orientation="horizontal"
-									anchorPos={'rt'}
-									length={96}
-									thickness={4}
-								/>
-							)}
 							<div style={{ position: 'absolute', left: -9999, top: -9999, width: 1, height: 1, overflow: 'hidden' }}>
 								<GridVisualizerCanvas
 									ref={exportCanvasRef}
@@ -1246,6 +1234,7 @@ export default function App() {
 									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
 									overlayCountdown={{ enabled: showCountdown, position: countPos, color: countColor, effects: countFx }}
 									overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
+									overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
 								/>
 							</div>
 

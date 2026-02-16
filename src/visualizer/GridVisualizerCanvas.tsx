@@ -40,6 +40,7 @@ type Props = {
   overlayDescription?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayCountdown?: { enabled: boolean; position: 'lt'|'ct'|'rt'|'bl'|'br'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayDancer?: { enabled: boolean; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; widthPct: number; sources?: DancerSources };
+  overlayVU?: { left: AnalyserNode | null; right: AnalyserNode | null; accentColor?: string; position?: 'lt'|'ct'|'rt'|'bl'|'br' };
 };
 
 export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { instanceKey?: string }>(function GridVisualizerCanvas({
@@ -54,6 +55,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
   overlayDescription,
   overlayCountdown,
   overlayDancer,
+  overlayVU,
   backgroundColor,
   backgroundImageUrl,
   backgroundFit = 'cover',
@@ -65,6 +67,11 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
   const hgFramesRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const bgImgRef = useRef<HTMLImageElement | null>(null);
   const bgLoadedRef = useRef<boolean>(false);
+  // VU meter state refs for smooth animation
+  const vuLevelRef = useRef<{ L: number; R: number }>({ L: 0, R: 0 });
+  const vuPeakRef = useRef<{ L: number; R: number }>({ L: 0, R: 0 });
+  const vuBufLRef = useRef<Float32Array>(new Float32Array(2048));
+  const vuBufRRef = useRef<Float32Array>(new Float32Array(2048));
 
   // Bridge innerRef to the forwarded ref
   useEffect(() => {
@@ -290,11 +297,102 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
   drawOverlayText(text, mapPos(overlayCountdown.position), overlayCountdown.color, 22, energy, timeNow, overlayCountdown.effects);
       }
 
+      // VU meters drawn on canvas (identical in preview & export)
+      if (overlayVU && (overlayVU.left || overlayVU.right)) {
+        // Read RMS levels from analyser nodes
+        const readLevel = (an: AnalyserNode | null, buf: Float32Array): number => {
+          if (!an) return 0;
+          if (buf.length !== an.fftSize) buf = new Float32Array(an.fftSize);
+          an.getFloatTimeDomainData(buf as any);
+          let sumSq = 0;
+          for (let i = 0; i < buf.length; i++) { const v = buf[i]; sumSq += v * v; }
+          return Math.max(0, Math.min(1, Math.sqrt(sumSq / buf.length)));
+        };
+        const rawL = readLevel(overlayVU.left, vuBufLRef.current);
+        const rawR = readLevel(overlayVU.right, vuBufRRef.current);
+        // Smooth with low-pass filter (matches VUMeters.tsx)
+        vuLevelRef.current.L = vuLevelRef.current.L * 0.85 + rawL * 0.15;
+        vuLevelRef.current.R = vuLevelRef.current.R * 0.85 + rawR * 0.15;
+        // Peak hold with slow decay
+        vuPeakRef.current.L = Math.max(vuPeakRef.current.L * 0.98, rawL);
+        vuPeakRef.current.R = Math.max(vuPeakRef.current.R * 0.98, rawR);
+
+        const sf = c.height / 720;
+        const vuPos = overlayVU.position || 'rt';
+        const barLen = Math.round(96 * sf);
+        const barH = Math.max(2, Math.round(3 * sf));
+        const gap = Math.max(1, Math.round(2 * sf));
+        const margin = Math.round(24 * sf);
+        // Position under countdown: margin(24) + fontSize(22) + spacing(6) = 52
+        const vuOffsetTop = Math.round(52 * sf);
+        const vuOffsetBottom = Math.round(52 * sf);
+        const totalH = barH * 2 + gap;
+
+        let bx = 0, by = 0;
+        if (vuPos === 'rt')      { bx = c.width - margin - barLen; by = vuOffsetTop; }
+        else if (vuPos === 'lt') { bx = margin;                    by = vuOffsetTop; }
+        else if (vuPos === 'ct') { bx = Math.round((c.width - barLen) / 2); by = vuOffsetTop; }
+        else if (vuPos === 'br') { bx = c.width - margin - barLen; by = c.height - vuOffsetBottom - totalH; }
+        else if (vuPos === 'bl') { bx = margin;                    by = c.height - vuOffsetBottom - totalH; }
+
+        const accent = overlayVU.accentColor || '#7aa2ff';
+        const parseHex = (hex: string) => {
+          let h = hex.replace('#', '');
+          if (h.length === 3) h = h.split('').map(ch => ch + ch).join('');
+          return { r: parseInt(h.substring(0, 2), 16), g: parseInt(h.substring(2, 4), 16), b: parseInt(h.substring(4, 6), 16) };
+        };
+        const ac = parseHex(accent);
+
+        const drawBar = (x: number, y: number, level: number, peak: number) => {
+          const radius = barH / 2;
+          // Dark track background
+          ctx.save();
+          ctx.fillStyle = 'rgba(20, 20, 25, 0.6)';
+          ctx.beginPath();
+          ctx.roundRect(x, y, barLen, barH, radius);
+          ctx.fill();
+          // Subtle 1px border
+          ctx.strokeStyle = `rgba(${ac.r}, ${ac.g}, ${ac.b}, 0.2)`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.roundRect(x, y, barLen, barH, radius);
+          ctx.stroke();
+          ctx.restore();
+          // Fill gradient (cyan → accent → pink)
+          const fillW = Math.round(level * barLen);
+          if (fillW > 0) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.roundRect(x, y, barLen, barH, radius);
+            ctx.clip();
+            const grad = ctx.createLinearGradient(x, 0, x + barLen, 0);
+            grad.addColorStop(0, '#00fff0');
+            grad.addColorStop(0.35, accent);
+            grad.addColorStop(1, '#ff00a8');
+            ctx.globalAlpha = 0.85;
+            ctx.fillStyle = grad;
+            ctx.fillRect(x, y, fillW, barH);
+            ctx.restore();
+          }
+          // Peak indicator (thin line, no glow)
+          if (peak > 0.01) {
+            const peakW = Math.max(1, Math.round(1.5 * sf));
+            const peakX = x + Math.round(peak * (barLen - peakW));
+            ctx.save();
+            ctx.fillStyle = `rgba(${Math.round(ac.r*0.86 + 255*0.14)}, ${Math.round(ac.g*0.86 + 255*0.14)}, ${Math.round(ac.b*0.86 + 255*0.14)}, 0.8)`;
+            ctx.fillRect(peakX, y, peakW, barH);
+            ctx.restore();
+          }
+        };
+        drawBar(bx, by, vuLevelRef.current.L, vuPeakRef.current.L);
+        drawBar(bx, by + barH + gap, vuLevelRef.current.R, vuPeakRef.current.R);
+      }
+
       raf = requestAnimationFrame(render);
     };
     render();
     return () => { cancelAnimationFrame(raf); };
-  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer]);
+  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU]);
 
   return <canvas ref={innerRef} width={width} height={height} />;
 });
