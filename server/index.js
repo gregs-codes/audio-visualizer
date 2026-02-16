@@ -126,6 +126,8 @@ app.post('/render', upload.single('file'), async (req, res) => {
       character, animations, dancerSize, dancerPos,
       title, titlePos, titleColor, titleFloat, titleBounce, titlePulse,
       desc, descPos, descColor, descFloat, descBounce, descPulse,
+      showCountdown, countPos, countColor, countFloat, countBounce, countPulse,
+      bgMode, bgColor, bgImageUrl, bgFit, bgOpacity,
     } = req.body || {};
 
     // Launch headless browser with generous protocol timeout to avoid premature failures
@@ -205,6 +207,21 @@ app.post('/render', upload.single('file'), async (req, res) => {
     if (descFloat) url.searchParams.set('descFloat', '1');
     if (descBounce) url.searchParams.set('descBounce', '1');
     if (descPulse) url.searchParams.set('descPulse', '1');
+    // Countdown timer
+    if (showCountdown) {
+      url.searchParams.set('showCountdown', '1');
+      if (countPos) url.searchParams.set('countPos', String(countPos));
+      if (countColor) url.searchParams.set('countColor', String(countColor));
+      if (countFloat) url.searchParams.set('countFloat', '1');
+      if (countBounce) url.searchParams.set('countBounce', '1');
+      if (countPulse) url.searchParams.set('countPulse', '1');
+    }
+    // Background
+    if (bgMode) url.searchParams.set('bgMode', String(bgMode));
+    if (bgColor) url.searchParams.set('bgColor', String(bgColor));
+    if (bgImageUrl) url.searchParams.set('bgImageUrl', String(bgImageUrl));
+    if (bgFit) url.searchParams.set('bgFit', String(bgFit));
+    if (bgOpacity) url.searchParams.set('bgOpacity', String(bgOpacity));
 
     // Stream progress via SSE
     res.setHeader('Content-Type', 'text/event-stream');

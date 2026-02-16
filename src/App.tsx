@@ -276,6 +276,16 @@ export default function App() {
 				const descPosQ = q.get('descPos');
 				const descColorQ = q.get('descColor');
 				const descFxQ = { float: q.get('descFloat') === '1', bounce: q.get('descBounce') === '1', pulse: q.get('descPulse') === '1' };
+				// Countdown params
+				const countPosQ = q.get('countPos');
+				const countColorQ = q.get('countColor');
+				const countFxQ = { float: q.get('countFloat') === '1', bounce: q.get('countBounce') === '1', pulse: q.get('countPulse') === '1' };
+				// Background params
+				const bgModeQ = q.get('bgMode');
+				const bgColorQ = q.get('bgColor');
+				const bgImageUrlQ = q.get('bgImageUrl');
+				const bgFitQ = q.get('bgFit');
+				const bgOpacityQ = q.get('bgOpacity');
 
 				setAspect(aspectQ);
 				setRes(resQ);
@@ -324,6 +334,18 @@ export default function App() {
 					if (descColorQ) setDescColor(descColorQ.startsWith('#') ? descColorQ : '#' + descColorQ);
 					setDescFx(descFxQ);
 				}
+
+				// Countdown from query params (always enabled)
+				if (countPosQ) setCountPos(countPosQ as any);
+				if (countColorQ) setCountColor(countColorQ.startsWith('#') ? countColorQ : '#' + countColorQ);
+				setCountFx(countFxQ);
+
+				// Background from query params
+				if (bgModeQ) setBgMode(bgModeQ as any);
+				if (bgColorQ) setBgColor(bgColorQ.startsWith('#') ? bgColorQ : '#' + bgColorQ);
+				if (bgImageUrlQ) setBgImageUrl(bgImageUrlQ);
+				if (bgFitQ) setBgFit(bgFitQ as any);
+				if (bgOpacityQ) setBgOpacity(parseFloat(bgOpacityQ));
 
 				// Dancer overlay from query params
 				if (characterQ || animationsQ) {
@@ -501,7 +523,6 @@ export default function App() {
 		const [descPos, setDescPos] = useState<Position9>('mb');
 	const [descColor, setDescColor] = useState('#a0a4ae');
 	const [descFx, setDescFx] = useState<{ float: boolean; bounce: boolean; pulse: boolean }>({ float: false, bounce: false, pulse: false });
-	const [showCountdown, setShowCountdown] = useState(true);
 		type Position5 = 'lt'|'ct'|'rt'|'bl'|'br';
 		const [countPos, setCountPos] = useState<Position5>('rt');
 	const [countColor, setCountColor] = useState('#e6e6eb');
@@ -745,6 +766,14 @@ export default function App() {
 									// Text overlays
 									if (title) { fd.append('title', title); fd.append('titlePos', titlePos); fd.append('titleColor', titleColor); if (titleFx.float) fd.append('titleFloat', '1'); if (titleFx.bounce) fd.append('titleBounce', '1'); if (titleFx.pulse) fd.append('titlePulse', '1'); }
 									if (desc) { fd.append('desc', desc); fd.append('descPos', descPos); fd.append('descColor', descColor); if (descFx.float) fd.append('descFloat', '1'); if (descFx.bounce) fd.append('descBounce', '1'); if (descFx.pulse) fd.append('descPulse', '1'); }
+									// Countdown timer
+									fd.append('showCountdown', '1'); fd.append('countPos', countPos); fd.append('countColor', countColor); if (countFx.float) fd.append('countFloat', '1'); if (countFx.bounce) fd.append('countBounce', '1'); if (countFx.pulse) fd.append('countPulse', '1');
+									// Background
+									fd.append('bgMode', bgMode);
+									if (bgMode === 'color') fd.append('bgColor', bgColor);
+									if (bgMode === 'image' && bgImageUrl) fd.append('bgImageUrl', bgImageUrl);
+									fd.append('bgFit', bgFit);
+									fd.append('bgOpacity', String(bgOpacity));
 
 									const resp = await fetch('http://localhost:9090/render', { method: 'POST', body: fd });
 									const reader = resp.body?.getReader();
@@ -1128,7 +1157,6 @@ export default function App() {
 				<div style={{ display: 'grid', gap: 8 }}>
 					<div style={{ color: 'var(--muted)' }}>Countdown</div>
 					<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-						<label><input type='checkbox' checked={showCountdown} onChange={e => setShowCountdown(e.target.checked)} /> Show</label>
 						<select value={countPos} onChange={e => setCountPos(e.target.value as Position5)}>
 							<option value='lt'>Left Top</option>
 							<option value='ct'>Center Top</option>
@@ -1245,7 +1273,7 @@ export default function App() {
 								instanceKey={'preview'}
 								overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
 								overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
-								overlayCountdown={{ enabled: showCountdown, position: countPos, color: countColor, effects: countFx }}
+								overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
 								overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
 								overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
 							/>
@@ -1266,7 +1294,7 @@ export default function App() {
 									instanceKey={'export'}
 									overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
 									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
-									overlayCountdown={{ enabled: showCountdown, position: countPos, color: countColor, effects: countFx }}
+									overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
 									overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
 									overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
 									exportPhase={exportPhase}
