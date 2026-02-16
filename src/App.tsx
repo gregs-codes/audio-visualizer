@@ -70,6 +70,7 @@ export default function App() {
 	const [exporting, setExporting] = useState<boolean>(false);
 	const [exportProgress, setExportProgress] = useState<number>(0);
 	const [exportError, setExportError] = useState<string>('');
+	const [exportPhase, setExportPhase] = useState<'intro' | 'playing' | 'outro' | undefined>(undefined);
 	const [isPlaying, setIsPlaying] = useState<boolean>(false);
 	const [progress, setProgress] = useState<number>(0); // 0..1
 	const [volume, setVolume] = useState<number>(80);
@@ -171,12 +172,24 @@ export default function App() {
 		if (!canvas) { setExportError('Export canvas not ready'); return null; }
 		if (muteDuringExport) setPlaybackMuted(true);
 		setExporting(true); setExportProgress(0); setExportError('');
+		const INTRO_SECS = 4;
+		const OUTRO_SECS = 5;
 		const mime = codec === 'vp9' ? 'video/webm;codecs=vp9,opus' : 'video/webm;codecs=vp8,opus';
-		start(canvas, getAudioStream(), { fps, mime, audioBitsPerSecond: aBitrate * 1000, videoBitsPerSecond: vBitrate * 1000 });
+		// Start recording with intro phase
+		setExportPhase('intro');
 		audio.currentTime = 0;
+		start(canvas, getAudioStream(), { fps, mime, audioBitsPerSecond: aBitrate * 1000, videoBitsPerSecond: vBitrate * 1000 });
+		// Record intro: dark screen with title/artist/frozen countdown
+		await new Promise(r => setTimeout(r, INTRO_SECS * 1000));
+		// Switch to playing phase and start audio
+		setExportPhase('playing');
 		await audio.play();
+		const totalDur = (audio.duration || 0) + INTRO_SECS + OUTRO_SECS;
 		const tick = () => {
-			if (audio.duration > 0) setExportProgress(Math.min(1, (audio.currentTime || 0) / audio.duration));
+			if (audio.duration > 0) {
+				const elapsed = INTRO_SECS + (audio.currentTime || 0);
+				setExportProgress(Math.min(1, elapsed / totalDur));
+			}
 			if (!audio.paused && !audio.ended) { requestAnimationFrame(tick); }
 		};
 		tick();
@@ -188,6 +201,10 @@ export default function App() {
 			check();
 		});
 		audio.pause();
+		// Switch to outro phase
+		setExportPhase('outro');
+		await new Promise(r => setTimeout(r, OUTRO_SECS * 1000));
+		setExportPhase(undefined);
 		const blob = await stop();
 		if (muteDuringExport) setPlaybackMuted(false);
 		setExportProgress(1);
@@ -373,28 +390,39 @@ export default function App() {
 				// This ensures the video pipeline is fully primed so audio and video are in sync from frame 1.
 				// We record extra silent frames that the server will trim with ffmpeg.
 				const RECORDER_PREBUFFER_SECS = 3;
+				const INTRO_SECS = 4;
+				const OUTRO_SECS = 5;
+				// Start in intro phase (dark screen with title/artist/frozen countdown)
+				setExportPhase('intro');
 				start(canvas, getAudioStream(), { fps: fpsQ, mime: mimeOut || undefined, audioBitsPerSecond: aBitQ * 1000, videoBitsPerSecond: vBitQ * 1000 });
 				console.log(`[auto-export] Recorder started, prebuffering ${RECORDER_PREBUFFER_SECS}s of silent frames...`);
 				// Record silent frames to let the encoder fully warm up (these will be trimmed by server)
 				await new Promise(r => setTimeout(r, RECORDER_PREBUFFER_SECS * 1000));
-				console.log('[auto-export] Pipeline ready, starting audio playback');
-				// Expose the trim offset so the server knows how much to cut
+				console.log('[auto-export] Pipeline ready, recording intro...');
+				// Expose the trim offset so the server knows how much to cut (prebuffer only, intro is kept)
 				(window as any).__exportTrimStart = RECORDER_PREBUFFER_SECS;
+				// Record intro dark screen
+				await new Promise(r => setTimeout(r, INTRO_SECS * 1000));
+				console.log('[auto-export] Intro done, starting audio playback');
+				// Switch to playing phase
+				setExportPhase('playing');
 				(window as any).__exportProgress = 0;
 				a.currentTime = 0;
 				await a.play();
+				const totalDur = INTRO_SECS + (a.duration || 0) + OUTRO_SECS;
 				console.log('[auto-export] Playback started, duration:', a.duration);
 				await new Promise<void>((resolve) => {
 					const startTime = Date.now();
 					const maxWaitMs = (a.duration + 5) * 1000; // duration + 5s safety margin
 					const check = () => {
 						if (a.duration > 0) {
-							const p = Math.min(1, (a.currentTime || 0) / a.duration);
+							const elapsed = INTRO_SECS + (a.currentTime || 0);
+							const p = Math.min(1, elapsed / totalDur);
 							(window as any).__exportProgress = p;
 						}
-						const elapsed = Date.now() - startTime;
-						if (a.ended || (a.duration > 0 && (a.currentTime || 0) >= a.duration - 0.05) || elapsed > maxWaitMs) {
-							console.log('[auto-export] Playback finished, ended:', a.ended, 'currentTime:', a.currentTime, 'elapsed:', elapsed);
+						const elapsedMs = Date.now() - startTime;
+						if (a.ended || (a.duration > 0 && (a.currentTime || 0) >= a.duration - 0.05) || elapsedMs > maxWaitMs) {
+							console.log('[auto-export] Playback finished, ended:', a.ended, 'currentTime:', a.currentTime, 'elapsed:', elapsedMs);
 							resolve();
 						}
 						else requestAnimationFrame(check);
@@ -402,6 +430,12 @@ export default function App() {
 					check();
 				});
 				a.pause();
+				// Record outro: dark screen with title/artist and 00:00 countdown
+				console.log('[auto-export] Recording outro...');
+				setExportPhase('outro');
+				await new Promise(r => setTimeout(r, OUTRO_SECS * 1000));
+				(window as any).__exportProgress = 1;
+				setExportPhase(undefined);
 				console.log('[auto-export] Stopping recorder...');
 				const blob = await stop();
 				console.log('[auto-export] Recorder stopped, blob size:', blob?.size);
@@ -1235,6 +1269,7 @@ export default function App() {
 									overlayCountdown={{ enabled: showCountdown, position: countPos, color: countColor, effects: countFx }}
 									overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
 									overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
+									exportPhase={exportPhase}
 								/>
 							</div>
 

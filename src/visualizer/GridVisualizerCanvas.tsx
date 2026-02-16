@@ -41,6 +41,8 @@ type Props = {
   overlayCountdown?: { enabled: boolean; position: 'lt'|'ct'|'rt'|'bl'|'br'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayDancer?: { enabled: boolean; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; widthPct: number; sources?: DancerSources };
   overlayVU?: { left: AnalyserNode | null; right: AnalyserNode | null; accentColor?: string; position?: 'lt'|'ct'|'rt'|'bl'|'br' };
+  /** Export phase: 'intro' = dark screen with overlays, 'outro' = dark screen after music, 'playing' or undefined = normal */
+  exportPhase?: 'intro' | 'playing' | 'outro';
 };
 
 export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { instanceKey?: string }>(function GridVisualizerCanvas({
@@ -56,6 +58,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
   overlayCountdown,
   overlayDancer,
   overlayVU,
+  exportPhase,
   backgroundColor,
   backgroundImageUrl,
   backgroundFit = 'cover',
@@ -162,7 +165,34 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
     const panelDetectors = panels.map((_, i) => new AudioFeatureDetector(analysers?.[i] || analyser));
     const render = () => {
       const isPlaying = !!audio && !audio.paused && !audio.ended && (audio.currentTime ?? 0) > 0;
-      // Freeze visuals when audio is paused or not started
+      const inIntroOutro = exportPhase === 'intro' || exportPhase === 'outro';
+
+      // During intro/outro: draw dark screen with title, artist, and frozen countdown
+      if (inIntroOutro) {
+        ctx.clearRect(0, 0, c.width, c.height);
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, c.width, c.height);
+        const timeNow = performance.now() / 1000;
+        // Title and description always shown during intro/outro
+        if (overlayTitle) drawOverlayText(overlayTitle.text, overlayTitle.position, overlayTitle.color, 48, 0, timeNow, undefined);
+        if (overlayDescription) drawOverlayText(overlayDescription.text, overlayDescription.position, overlayDescription.color, 24, 0, timeNow, undefined);
+        // Countdown: during intro show full duration, during outro show 00:00
+        if (overlayCountdown?.enabled && audio) {
+          const dur = audio.duration || 0;
+          const rem = exportPhase === 'intro' ? dur : 0;
+          const mm = Math.floor(rem / 60).toString().padStart(2, '0');
+          const ss = Math.floor(rem % 60).toString().padStart(2, '0');
+          const text = `${mm}:${ss}`;
+          const mapPos = (p: 'lt'|'ct'|'rt'|'bl'|'br'): 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb' => (
+            p === 'lt' ? 'lt' : p === 'ct' ? 'mt' : p === 'rt' ? 'rt' : p === 'bl' ? 'lb' : 'rb'
+          );
+          drawOverlayText(text, mapPos(overlayCountdown.position), overlayCountdown.color, 22, 0, timeNow, undefined);
+        }
+        raf = requestAnimationFrame(render);
+        return;
+      }
+
+      // Freeze visuals when audio is paused or not started (normal playback mode)
       if (!isPlaying) {
         raf = requestAnimationFrame(render);
         return;
@@ -392,7 +422,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
     };
     render();
     return () => { cancelAnimationFrame(raf); };
-  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU]);
+  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU, exportPhase]);
 
   return <canvas ref={innerRef} width={width} height={height} />;
 });
