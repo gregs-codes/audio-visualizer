@@ -698,6 +698,8 @@ export default function App() {
 									fd.append('codec', codec);								fd.append('format', outputFormat);									fd.append('vBitrate', String(vBitrate));
 									fd.append('aBitrate', String(aBitrate));
 									fd.append('mode', panels[0]?.mode || mode);
+									fd.append('layout', layout);
+									fd.append('panels', JSON.stringify(panels));
 									fd.append('theme', theme);
 									// Dancer params
 									if (showDancer && dancerOverlaySources.characterUrl) {

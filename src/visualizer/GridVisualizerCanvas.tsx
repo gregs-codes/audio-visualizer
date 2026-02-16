@@ -114,14 +114,12 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
     ) => {
       if (!text) return;
       ctx.save();
-      const baseSize = size * (effects?.pulse ? (1 + energy * 0.25) : 1);
-      ctx.font = `600 ${Math.round(baseSize)}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+      // Scale font size proportionally to canvas height for consistent appearance across resolutions
+      const scaleFactor = c.height / 720;
+      const baseSize = Math.round(size * scaleFactor * (effects?.pulse ? (1 + energy * 0.25) : 1));
+      ctx.font = `600 ${baseSize}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
       ctx.fillStyle = color;
-      ctx.strokeStyle = hexToRgba(color, 0.85);
-      ctx.lineWidth = 1;
-      ctx.shadowColor = hexToRgba(color, 0.3);
-      ctx.shadowBlur = 8;
-      const margin = 24;
+      const margin = Math.round(24 * scaleFactor);
       let x = margin, y = margin;
       let textAlign: CanvasTextAlign = 'left';
       let textBaseline: CanvasTextBaseline = 'top';
@@ -137,13 +135,18 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         case 'rb': x = c.width - margin; y = c.height - margin; textAlign='right'; textBaseline='bottom'; break;
         case 'ct': x = c.width/2; y = margin; textAlign='center'; textBaseline='top'; break;
       }
-      const floatOffset = effects?.float ? Math.sin(timeNow * 1.5) * 8 : 0;
-      const bounceOffset = effects?.bounce ? -energy * 20 : 0;
+      const floatOffset = effects?.float ? Math.sin(timeNow * 1.5) * 8 * scaleFactor : 0;
+      const bounceOffset = effects?.bounce ? -energy * 20 * scaleFactor : 0;
       ctx.textAlign = textAlign;
       ctx.textBaseline = textBaseline;
       const ty = y + floatOffset + bounceOffset;
-      ctx.fillText(text, x, ty);
+      // Draw crisp text with a subtle dark outline for readability (no blurry shadow)
+      ctx.lineWidth = Math.max(2, Math.round(3 * scaleFactor));
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.lineJoin = 'round';
+      ctx.miterLimit = 2;
       ctx.strokeText(text, x, ty);
+      ctx.fillText(text, x, ty);
       ctx.restore();
     };
 
