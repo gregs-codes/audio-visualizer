@@ -49,7 +49,7 @@ export function useCanvasRecorder() {
     };
     recorderRef.current = recorder;
     setRecording(true);
-    recorder.start();
+    recorder.start(1000); // collect data every 1s for reliable chunking in headless browsers
   };
 
   const stop = async (): Promise<Blob | null> => {

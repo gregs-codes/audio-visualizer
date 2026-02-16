@@ -68,14 +68,15 @@ export default function App() {
 	const [vBitrate, setVBitrate] = useState<number>(4000); // kbps
 	const [aBitrate, setABitrate] = useState<number>(192); // kbps
 	const [muteDuringExport, setMuteDuringExport] = useState<boolean>(true);
+	const [exporting, setExporting] = useState<boolean>(false);
+	const [exportProgress, setExportProgress] = useState<number>(0);
+	const [exportError, setExportError] = useState<string>('');
 	const [isPlaying, setIsPlaying] = useState<boolean>(false);
 	const [progress, setProgress] = useState<number>(0); // 0..1
 	const [volume, setVolume] = useState<number>(80);
 	const wrapRef = useRef<HTMLDivElement | null>(null);
-	const [audioFile, setAudioFile] = useState<File | null>(null);
 
 	// Server render state
-	const [serverRendering, setServerRendering] = useState(false);
 	const [serverProgress, setServerProgress] = useState(0);
 	const [serverStatus, setServerStatus] = useState('');
 	const [serverError, setServerError] = useState('');
@@ -195,14 +196,19 @@ export default function App() {
 		return blob;
 	};
 
-	// Auto export when ready
+	// Auto export when ready — only used for non-server (manual) auto export.
+	// Server-side rendering uses the query-param useEffect below, which handles
+	// prebuffering, progress tracking, and proper export canvas recording.
+	// This effect is intentionally disabled when query-param auto-export is active.
 	useEffect(() => {
 		const run = async () => {
 			if (!autoExport) return;
 			if (!ready || !analyserNode) return;
+			// Skip if server-side auto-export (query param) is handling it
+			const q = new URLSearchParams(window.location.search);
+			if (q.get('autoExport') === '1' && q.get('audio')) return;
 			const blob = await runExport();
 			if (blob) {
-				// Expose result for Puppeteer
 				(async () => {
 					const ab = await blob.arrayBuffer();
 					(Object.assign(window as any, { __exportBuffer: ab, __exportMime: blob.type, __exportDone: true }));
@@ -266,6 +272,28 @@ export default function App() {
 					setMode(modeQ);
 					setPanels(prev => prev.map(p => ({ ...p, mode: modeQ })));
 				}
+				// Multi-panel setup from query params
+				const layoutQ = q.get('layout') as LayoutMode | null;
+				const panelsJson = q.get('panels');
+				if (layoutQ) setLayout(layoutQ);
+				if (panelsJson) {
+					try {
+						const parsed = JSON.parse(panelsJson);
+						if (Array.isArray(parsed) && parsed.length) {
+							setPanels(parsed.map((p: any) => ({
+								mode: p.mode || 'vertical-bars',
+								color: p.color || color,
+								band: p.band || 'full',
+								colors: p.colors || defaultPanelColors,
+								hgView: p.hgView || 'top',
+								dancerSources: p.dancerSources,
+							})));
+						}
+					} catch {}
+				}
+
+				// Wait for React to re-render with new panels/layout before continuing
+				for (let i = 0; i < 10; i++) await new Promise(r => requestAnimationFrame(r));
 
 				// Text overlays from query params
 				if (titleQ) {

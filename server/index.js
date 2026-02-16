@@ -122,7 +122,7 @@ app.post('/render', upload.single('file'), async (req, res) => {
 
     const {
       aspect = '16:9', res: resolution = '720', fps = '30', codec = 'vp9',
-      vBitrate = '8000', aBitrate = '192', format = 'webm', mode, theme,
+      vBitrate = '8000', aBitrate = '192', format = 'webm', mode, theme, layout, panels,
       character, animations, dancerSize, dancerPos,
       title, titlePos, titleColor, titleFloat, titleBounce, titlePulse,
       desc, descPos, descColor, descFloat, descBounce, descPulse,
@@ -185,6 +185,8 @@ app.post('/render', upload.single('file'), async (req, res) => {
     url.searchParams.set('vBitrate', String(vBitrate));
     url.searchParams.set('aBitrate', String(aBitrate));
     if (mode) url.searchParams.set('mode', String(mode));
+    if (layout) url.searchParams.set('layout', String(layout));
+    if (panels) url.searchParams.set('panels', String(panels));
     if (theme) url.searchParams.set('theme', String(theme));
     if (character) url.searchParams.set('character', String(character));
     if (animations) url.searchParams.set('animations', String(animations));
@@ -224,36 +226,49 @@ app.post('/render', upload.single('file'), async (req, res) => {
 
     sendEvent({ status: 'buffering', progress: 0 });
 
-    // Poll progress from the page while rendering — use 1-decimal precision for long files
+    // Poll progress from the page while rendering — single evaluate per tick for speed
     let lastProgress = -1;
     let lastStatus = 'buffering';
     let pollStopped = false;
+    let pollRunning = false;
+    let pollCount = 0;
     const progressInterval = setInterval(async () => {
-      if (pollStopped) return;
+      if (pollStopped || pollRunning) return;
+      pollRunning = true;
       try {
-        const done = await page.evaluate(() => (window).__exportDone);
-        if (done !== undefined) { pollStopped = true; return; }
-        // Check if still prebuffering
-        const prebuffering = await page.evaluate(() => (window).__exportPrebuffering);
-        if (prebuffering) {
+        // Single page.evaluate to read all state at once (avoids 3× round-trip latency)
+        const state = await page.evaluate(() => ({
+          done: (window).__exportDone,
+          prebuffering: (window).__exportPrebuffering,
+          progress: (window).__exportProgress ?? 0,
+        }));
+        pollCount++;
+        if (pollCount <= 5 || pollCount % 20 === 0) {
+          console.log(`[poll #${pollCount}] done=${state.done}, prebuffering=${state.prebuffering}, progress=${state.progress}`);
+        }
+        if (state.done !== undefined) { pollStopped = true; console.log('[poll] Export done detected, stopping poll'); return; }
+        if (state.prebuffering) {
           if (lastStatus !== 'buffering') {
             lastStatus = 'buffering';
             sendEvent({ status: 'buffering', progress: 0 });
           }
-          return;
+        } else {
+          if (lastStatus === 'buffering') {
+            lastStatus = 'recording';
+            console.log('[poll] Switched to recording status');
+            sendEvent({ status: 'recording', progress: 0 });
+          }
+          const pct = Math.round(state.progress * 1000) / 10;
+          if (pct !== lastProgress && pct < 100) {
+            lastProgress = pct;
+            sendEvent({ status: 'recording', progress: pct });
+          }
         }
-        if (lastStatus === 'buffering') {
-          lastStatus = 'recording';
-          sendEvent({ status: 'recording', progress: 0 });
-        }
-        const p = await page.evaluate(() => (window).__exportProgress ?? 0);
-        const pct = Math.round(p * 1000) / 10; // 1 decimal place (e.g. 0.4%)
-        if (pct !== lastProgress && pct < 100) {
-          lastProgress = pct;
-          sendEvent({ status: 'recording', progress: pct });
-        }
-      } catch {}
-    }, 500);
+      } catch (e) {
+        console.error('[poll] Error:', e.message || e);
+      }
+      pollRunning = false;
+    }, 250);
 
     // Wait for export to finish
     await page.waitForFunction('window.__exportDone !== undefined', { timeout: 300_000 });
@@ -274,7 +289,6 @@ app.post('/render', upload.single('file'), async (req, res) => {
     const { bufferBase64, mime } = await page.evaluate(async () => {
       const ab = (window).__exportBuffer;
       const mime = (window).__exportMime;
-      // Use Blob + FileReader for efficient base64 conversion (avoids O(n²) string concat)
       const blob = new Blob([new Uint8Array(ab)]);
       const base64 = await new Promise((resolve) => {
         const reader = new FileReader();
@@ -295,9 +309,9 @@ app.post('/render', upload.single('file'), async (req, res) => {
     sendEvent({ status: 'saving', progress: 0 });
 
     const buf = Buffer.from(bufferBase64, 'base64');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const renderedDir = path.join(__dirname, '..', 'public', 'rendered');
     await fs.mkdir(renderedDir, { recursive: true });
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
     if (format === 'mp4') {
       // Transcode WebM → MP4 (H.264 + AAC) with ffmpeg, trimming prebuffer
@@ -308,52 +322,68 @@ app.post('/render', upload.single('file'), async (req, res) => {
       console.log(`Temp WebM written: ${tmpWebm} (${(buf.length / 1024 / 1024).toFixed(1)} MB)`);
       const outName = `visualizer_${timestamp}.mp4`;
       const outPath = path.join(renderedDir, outName);
-      await new Promise((resolve, reject) => {
-        const cmd = ffmpeg(tmpWebm);
-        // Trim prebuffer frames from the beginning
-        if (trimStart > 0) {
-          cmd.setStartTime(trimStart);
-          console.log(`Trimming first ${trimStart}s of prebuffer from output`);
-        }
-        cmd
-          .videoCodec('libx264')
-          .audioCodec('aac')
-          .outputOptions([
-            '-preset', 'ultrafast',
-            '-crf', '23',
-            '-pix_fmt', 'yuv420p',
-            '-movflags', '+faststart',
-            '-b:a', `${aBitrate}k`,
-          ])
-          .on('progress', (p) => {
-            if (p.percent) console.log(`ffmpeg transcode: ${Math.round(p.percent)}%`);
-          })
-          .on('end', () => { console.log('ffmpeg transcode complete'); resolve(); })
-          .on('error', (err) => { console.error('ffmpeg error:', err); reject(err); })
-          .save(outPath);
-      });
-      const stat = await fs.stat(outPath);
-      console.log(`Rendered MP4 saved to ${outPath} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
-      sendEvent({ status: 'done', progress: 100, url: `/rendered/${outName}`, filename: outName });
-      // Clean up temp webm
+      try {
+        await new Promise((resolve, reject) => {
+          const cmd = ffmpeg(tmpWebm);
+          if (trimStart > 0) {
+            cmd.setStartTime(trimStart);
+            console.log(`Trimming first ${trimStart}s of prebuffer from output`);
+          }
+          cmd
+            .videoCodec('libx264')
+            .audioCodec('aac')
+            .outputOptions([
+              '-preset', 'ultrafast',
+              '-crf', '23',
+              '-pix_fmt', 'yuv420p',
+              '-movflags', '+faststart',
+              '-b:a', `${aBitrate}k`,
+            ])
+            .on('progress', (p) => {
+              if (p.percent) console.log(`ffmpeg transcode: ${Math.round(p.percent)}%`);
+            })
+            .on('end', () => { console.log('ffmpeg transcode complete'); resolve(); })
+            .on('error', (err) => { console.error('ffmpeg error:', err); reject(err); })
+            .save(outPath);
+        });
+        const stat = await fs.stat(outPath);
+        console.log(`Rendered MP4 saved to ${outPath} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
+        sendEvent({ status: 'done', progress: 100, url: `/rendered/${outName}`, filename: outName });
+      } catch (transcodeErr) {
+        console.error('ffmpeg transcode failed, saving raw WebM instead:', transcodeErr.message);
+        const fallbackName = `visualizer_${timestamp}.webm`;
+        const fallbackPath = path.join(renderedDir, fallbackName);
+        await fs.writeFile(fallbackPath, buf);
+        sendEvent({ status: 'done', progress: 100, url: `/rendered/${fallbackName}`, filename: fallbackName });
+      }
       try { await fs.unlink(tmpWebm); } catch {}
     } else {
       // Save WebM — trim prebuffer with ffmpeg if needed
-      const tmpWebm = path.join(TMP_DIR, `${timestamp}_raw.webm`);
-      await fs.writeFile(tmpWebm, buf);
       const outName = `visualizer_${timestamp}.webm`;
       const outPath = path.join(renderedDir, outName);
       if (trimStart > 0) {
+        const tmpWebm = path.join(TMP_DIR, `${timestamp}_raw.webm`);
+        await fs.writeFile(tmpWebm, buf);
         sendEvent({ status: 'transcoding', progress: 99 });
-        console.log(`Trimming first ${trimStart}s of prebuffer from WebM...`);
-        await new Promise((resolve, reject) => {
-          ffmpeg(tmpWebm)
-            .setStartTime(trimStart)
-            .outputOptions(['-c', 'copy']) // no re-encode, just trim
-            .on('end', () => { console.log('WebM trim complete'); resolve(); })
-            .on('error', (err) => { console.error('ffmpeg trim error:', err); reject(err); })
-            .save(outPath);
-        });
+        console.log(`Trimming first ${trimStart}s of prebuffer from WebM (re-encode)...`);
+        try {
+          await new Promise((resolve, reject) => {
+            ffmpeg(tmpWebm)
+              .setStartTime(trimStart)
+              .videoCodec('libvpx-vp9')
+              .audioCodec('libopus')
+              .outputOptions(['-b:v', '4000k', '-b:a', `${aBitrate}k`])
+              .on('progress', (p) => {
+                if (p.percent) console.log(`ffmpeg WebM trim: ${Math.round(p.percent)}%`);
+              })
+              .on('end', () => { console.log('WebM trim complete'); resolve(); })
+              .on('error', (err) => { console.error('ffmpeg trim error:', err); reject(err); })
+              .save(outPath);
+          });
+        } catch (trimErr) {
+          console.error('ffmpeg trim failed, saving untrimmed WebM instead:', trimErr.message);
+          await fs.writeFile(outPath, buf);
+        }
         try { await fs.unlink(tmpWebm); } catch {}
       } else {
         await fs.writeFile(outPath, buf);
