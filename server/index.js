@@ -222,6 +222,7 @@ app.post('/render', upload.single('file'), async (req, res) => {
     if (bgImageUrl) url.searchParams.set('bgImageUrl', String(bgImageUrl));
     if (bgFit) url.searchParams.set('bgFit', String(bgFit));
     if (bgOpacity) url.searchParams.set('bgOpacity', String(bgOpacity));
+    // Parallax/spotlight backgrounds: no extra params needed yet, but this ensures bgMode=parallax is passed to the client for correct rendering.
 
     // Stream progress via SSE
     res.setHeader('Content-Type', 'text/event-stream');

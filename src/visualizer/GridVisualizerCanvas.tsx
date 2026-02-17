@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, forwardRef } from 'react';
+import { ParallaxBackgroundEngine, spotlightAnimate, laserLightsAnimate, tunnelStarfieldAnimate, movingRaysAnimate } from './ParallaxBackgroundEngine';
 import type { VisualizerMode } from './visualizerModes';
 import { VISUALIZERS } from './visualizers';
 import type { DancerSources } from './dancer/DancerEngine';
@@ -36,6 +37,7 @@ type Props = {
   backgroundImageUrl?: string; // optional image background (local URL)
   backgroundFit?: 'cover'|'contain'|'stretch';
   backgroundOpacity?: number; // 0..1
+  bgMode?: 'none'|'color'|'image'|'parallax';
   overlayTitle?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayDescription?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayCountdown?: { enabled: boolean; position: 'lt'|'ct'|'rt'|'bl'|'br'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
@@ -63,6 +65,9 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
   backgroundImageUrl,
   backgroundFit = 'cover',
   backgroundOpacity = 1,
+  bgMode = 'none',
+  bgParallax = false,
+  parallaxEngine = undefined,
   instanceKey = 'main',
 }, ref) {
   const innerRef = useRef<HTMLCanvasElement>(null);
@@ -77,6 +82,8 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
   const vuBufRRef = useRef<Float32Array>(new Float32Array(2048));
 
   // Bridge innerRef to the forwarded ref
+  // Parallax background engine instance
+  const parallaxRef = useRef<ParallaxBackgroundEngine | null>(null);
   useEffect(() => {
     if (!ref) return;
     if (typeof ref === 'function') {
@@ -100,9 +107,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
     const c = innerRef.current;
     if (!analyser || !c) return;
     const ctx = c.getContext('2d')!;
-
     const regions = computeRegions(layout, c.width, c.height);
-
     // color helper
     const hexToRgba = (hex: string, alpha = 1): string => {
       let h = hex.replace('#', '');
@@ -112,7 +117,6 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
       const b = parseInt(h.substring(4, 6), 16);
       return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     };
-
     const drawOverlayText = (
       text: string,
       pos: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'|'ct',
@@ -124,7 +128,6 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
     ) => {
       if (!text) return;
       ctx.save();
-      // Scale font size proportionally to canvas height for consistent appearance across resolutions
       const scaleFactor = c.height / 720;
       const baseSize = Math.round(size * scaleFactor * (effects?.pulse ? (1 + energy * 0.25) : 1));
       ctx.font = `600 ${baseSize}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
@@ -150,7 +153,6 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
       ctx.textAlign = textAlign;
       ctx.textBaseline = textBaseline;
       const ty = y + floatOffset + bounceOffset;
-      // Draw crisp text with a subtle dark outline for readability (no blurry shadow)
       ctx.lineWidth = Math.max(2, Math.round(3 * scaleFactor));
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
       ctx.lineJoin = 'round';
@@ -159,24 +161,19 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
       ctx.fillText(text, x, ty);
       ctx.restore();
     };
-
     let raf = 0;
     const mainDetector = new AudioFeatureDetector(analyser);
     const panelDetectors = panels.map((_, i) => new AudioFeatureDetector(analysers?.[i] || analyser));
     const render = () => {
       const isPlaying = !!audio && !audio.paused && !audio.ended && (audio.currentTime ?? 0) > 0;
       const inIntroOutro = exportPhase === 'intro' || exportPhase === 'outro';
-
-      // During intro/outro: draw dark screen with title, artist, and frozen countdown
       if (inIntroOutro) {
         ctx.clearRect(0, 0, c.width, c.height);
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, c.width, c.height);
         const timeNow = performance.now() / 1000;
-        // Title and description always shown during intro/outro
         if (overlayTitle) drawOverlayText(overlayTitle.text, overlayTitle.position, overlayTitle.color, 48, 0, timeNow, undefined);
         if (overlayDescription) drawOverlayText(overlayDescription.text, overlayDescription.position, overlayDescription.color, 24, 0, timeNow, undefined);
-        // Countdown: during intro show full duration, during outro show 00:00
         if (overlayCountdown?.enabled && audio) {
           const dur = audio.duration || 0;
           const rem = exportPhase === 'intro' ? dur : 0;
@@ -191,55 +188,90 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         raf = requestAnimationFrame(render);
         return;
       }
-
-      // Freeze visuals when audio is paused or not started (normal playback mode)
       if (!isPlaying) {
         raf = requestAnimationFrame(render);
         return;
       }
       ctx.clearRect(0, 0, c.width, c.height);
-      // Draw background first (color or image)
-      if (backgroundColor) {
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(1, backgroundOpacity));
-        ctx.fillStyle = backgroundColor;
-        ctx.fillRect(0, 0, c.width, c.height);
-        ctx.restore();
-      }
-      if (bgImgRef.current && bgLoadedRef.current) {
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(1, backgroundOpacity));
-        const img = bgImgRef.current;
-        const cw = c.width, ch = c.height;
-        const iw = img.naturalWidth || img.width;
-        const ih = img.naturalHeight || img.height;
-        let dx = 0, dy = 0, dw = cw, dh = ch;
-        if (backgroundFit === 'cover') {
-          const scale = Math.max(cw / iw, ch / ih);
-          dw = Math.ceil(iw * scale);
-          dh = Math.ceil(ih * scale);
-          dx = Math.floor((cw - dw) / 2);
-          dy = Math.floor((ch - dh) / 2);
-        } else if (backgroundFit === 'contain') {
-          const scale = Math.min(cw / iw, ch / ih);
-          dw = Math.ceil(iw * scale);
-          dh = Math.ceil(ih * scale);
-          dx = Math.floor((cw - dw) / 2);
-          dy = Math.floor((ch - dh) / 2);
-        } else {
-          // stretch
-          dx = 0; dy = 0; dw = cw; dh = ch;
+      // Draw background: parallax, color, or image
+      if (bgMode === 'parallax' || bgMode === 'spotlight' || bgMode === 'lasers' || bgMode === 'tunnel' || bgMode === 'rays') {
+        if (!parallaxRef.current || parallaxRef.current.bgMode !== bgMode) {
+          let layers;
+          switch (bgMode) {
+            case 'spotlight':
+              layers = [
+                { color: '#181a20', speed: 0, opacity: 1 },
+                { animate: spotlightAnimate, speed: 1, opacity: 1, blendMode: 'lighter' },
+              ];
+              break;
+            case 'lasers':
+              layers = [
+                { color: '#0a0c18', speed: 0, opacity: 1 },
+                { animate: laserLightsAnimate, speed: 1, opacity: 1, blendMode: 'lighter' },
+              ];
+              break;
+            case 'tunnel':
+              layers = [
+                { color: '#0a0c18', speed: 0, opacity: 1 },
+                { animate: tunnelStarfieldAnimate, speed: 1, opacity: 1, blendMode: 'lighter' },
+              ];
+              break;
+            case 'rays':
+              layers = [
+                { color: '#181a20', speed: 0, opacity: 1 },
+                { animate: movingRaysAnimate, speed: 1, opacity: 1, blendMode: 'lighter' },
+              ];
+              break;
+            default:
+              layers = [
+                { color: '#181a20', speed: 0, opacity: 1 },
+                { animate: spotlightAnimate, speed: 1, opacity: 1, blendMode: 'lighter' },
+              ];
+          }
+          parallaxRef.current = new ParallaxBackgroundEngine(layers);
+          parallaxRef.current.bgMode = bgMode;
         }
-        try { ctx.drawImage(img, dx, dy, dw, dh); } catch {}
-        ctx.restore();
+        parallaxRef.current.render(ctx, performance.now(), c.width, c.height);
+      } else {
+        if (backgroundColor) {
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, Math.min(1, backgroundOpacity));
+          ctx.fillStyle = backgroundColor;
+          ctx.fillRect(0, 0, c.width, c.height);
+          ctx.restore();
+        }
+        if (bgImgRef.current && bgLoadedRef.current) {
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, Math.min(1, backgroundOpacity));
+          const img = bgImgRef.current;
+          const cw = c.width, ch = c.height;
+          const iw = img.naturalWidth || img.width;
+          const ih = img.naturalHeight || img.height;
+          let dx = 0, dy = 0, dw = cw, dh = ch;
+          if (backgroundFit === 'cover') {
+            const scale = Math.max(cw / iw, ch / ih);
+            dw = Math.ceil(iw * scale);
+            dh = Math.ceil(ih * scale);
+            dx = Math.floor((cw - dw) / 2);
+            dy = Math.floor((ch - dh) / 2);
+          } else if (backgroundFit === 'contain') {
+            const scale = Math.min(cw / iw, ch / ih);
+            dw = Math.ceil(iw * scale);
+            dh = Math.ceil(ih * scale);
+            dx = Math.floor((cw - dw) / 2);
+            dy = Math.floor((ch - dh) / 2);
+          } else {
+            dx = 0; dy = 0; dw = cw; dh = ch;
+          }
+          try { ctx.drawImage(img, dx, dy, dw, dh); } catch {}
+          ctx.restore();
+        }
       }
       const baseFreq = new Uint8Array(analyser.frequencyBinCount);
       analyser.getByteFrequencyData(baseFreq);
       const energy = baseFreq.reduce((sum, v) => sum + v, 0) / (255 * Math.max(1, baseFreq.length));
       const timeNow = performance.now() / 1000;
-      // advance audio features for overlay
       const features = mainDetector.update(1/60);
-
       panels.forEach((p, i) => {
         const rgn = regions[i] || regions[0];
         const panelAnalyser = analysers?.[i] || analyser;
@@ -249,12 +281,10 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         panelAnalyser.getByteTimeDomainData(time);
         const renderer = VISUALIZERS[p.mode as VisualizerMode];
         if (p.mode === 'high-graphics' || p.mode === 'high-graphics-nebula' || p.mode === 'high-graphics-tunnel' || p.mode === 'high-graphics-curl' || p.mode === 'high-graphics-spiral' || p.mode === 'high-graphics-cells' || p.mode === 'high-graphics-fog' || p.mode === 'high-graphics-trunk' || p.mode === 'high-graphics-rings' || p.mode === 'high-graphics-rings-trails' || p.mode === 'high-graphics-kaleidoscope' || p.mode === 'high-graphics-flow-field' || p.mode === 'high-graphics-hexagon' || p.mode === 'high-graphics-hex-paths' || p.mode === 'high-graphics-net') {
-          // Draw cached HG frame synchronously to preserve overlay order
           const cached = hgFramesRef.current.get(i);
           if (cached) {
             try { ctx.drawImage(cached, Math.floor(rgn.x), Math.floor(rgn.y), Math.floor(rgn.w), Math.floor(rgn.h)); } catch {}
           }
-          // Schedule async update to refresh cache for next frame
           const feats = panelDetectors[i].update(1/60);
           const W = Math.floor(rgn.w); const H = Math.floor(rgn.h);
           let promise: Promise<HTMLCanvasElement> | null = null;
@@ -280,8 +310,6 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           renderer({ ctx, x: rgn.x, y: rgn.y, w: rgn.w, h: rgn.h, panel: p, freq, time, energy, now: timeNow, panelKey: `panel-${i}` });
         }
       });
-
-      // Dancer overlay draw (cached), then request async update for next frames
       if (overlayDancer?.enabled) {
         const W = c.width; const H = c.height;
         const targetW = Math.max(80, Math.min(W, Math.round(W * (overlayDancer.widthPct / 100))));
@@ -310,10 +338,8 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           .then((canvas3d) => { dancerFrameRef.current = canvas3d; })
           .catch(() => {});
       }
-
-      // Text overlays on top
-  if (overlayTitle) drawOverlayText(overlayTitle.text, overlayTitle.position, overlayTitle.color, 48, energy, timeNow, overlayTitle.effects);
-  if (overlayDescription) drawOverlayText(overlayDescription.text, overlayDescription.position, overlayDescription.color, 24, energy, timeNow, overlayDescription.effects);
+      if (overlayTitle) drawOverlayText(overlayTitle.text, overlayTitle.position, overlayTitle.color, 48, energy, timeNow, overlayTitle.effects);
+      if (overlayDescription) drawOverlayText(overlayDescription.text, overlayDescription.position, overlayDescription.color, 24, energy, timeNow, overlayDescription.effects);
       if (overlayCountdown?.enabled && audio) {
         const dur = audio.duration || 0;
         const cur = audio.currentTime || 0;
@@ -324,12 +350,9 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         const mapPos = (p: 'lt'|'ct'|'rt'|'bl'|'br'): 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb' => (
           p === 'lt' ? 'lt' : p === 'ct' ? 'mt' : p === 'rt' ? 'rt' : p === 'bl' ? 'lb' : 'rb'
         );
-  drawOverlayText(text, mapPos(overlayCountdown.position), overlayCountdown.color, 22, energy, timeNow, overlayCountdown.effects);
+        drawOverlayText(text, mapPos(overlayCountdown.position), overlayCountdown.color, 22, energy, timeNow, overlayCountdown.effects);
       }
-
-      // VU meters drawn on canvas (identical in preview & export)
       if (overlayVU && (overlayVU.left || overlayVU.right)) {
-        // Read RMS levels from analyser nodes
         const readLevel = (an: AnalyserNode | null, buf: Float32Array): number => {
           if (!an) return 0;
           if (buf.length !== an.fftSize) buf = new Float32Array(an.fftSize);
@@ -340,31 +363,25 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         };
         const rawL = readLevel(overlayVU.left, vuBufLRef.current);
         const rawR = readLevel(overlayVU.right, vuBufRRef.current);
-        // Smooth with low-pass filter (matches VUMeters.tsx)
         vuLevelRef.current.L = vuLevelRef.current.L * 0.85 + rawL * 0.15;
         vuLevelRef.current.R = vuLevelRef.current.R * 0.85 + rawR * 0.15;
-        // Peak hold with slow decay
         vuPeakRef.current.L = Math.max(vuPeakRef.current.L * 0.98, rawL);
         vuPeakRef.current.R = Math.max(vuPeakRef.current.R * 0.98, rawR);
-
         const sf = c.height / 720;
         const vuPos = overlayVU.position || 'rt';
         const barLen = Math.round(96 * sf);
         const barH = Math.max(2, Math.round(3 * sf));
         const gap = Math.max(1, Math.round(2 * sf));
         const margin = Math.round(24 * sf);
-        // Position under countdown: margin(24) + fontSize(22) + spacing(6) = 52
         const vuOffsetTop = Math.round(52 * sf);
         const vuOffsetBottom = Math.round(52 * sf);
         const totalH = barH * 2 + gap;
-
         let bx = 0, by = 0;
         if (vuPos === 'rt')      { bx = c.width - margin - barLen; by = vuOffsetTop; }
         else if (vuPos === 'lt') { bx = margin;                    by = vuOffsetTop; }
         else if (vuPos === 'ct') { bx = Math.round((c.width - barLen) / 2); by = vuOffsetTop; }
         else if (vuPos === 'br') { bx = c.width - margin - barLen; by = c.height - vuOffsetBottom - totalH; }
         else if (vuPos === 'bl') { bx = margin;                    by = c.height - vuOffsetBottom - totalH; }
-
         const accent = overlayVU.accentColor || '#7aa2ff';
         const parseHex = (hex: string) => {
           let h = hex.replace('#', '');
@@ -372,23 +389,19 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           return { r: parseInt(h.substring(0, 2), 16), g: parseInt(h.substring(2, 4), 16), b: parseInt(h.substring(4, 6), 16) };
         };
         const ac = parseHex(accent);
-
         const drawBar = (x: number, y: number, level: number, peak: number) => {
           const radius = barH / 2;
-          // Dark track background
           ctx.save();
           ctx.fillStyle = 'rgba(20, 20, 25, 0.6)';
           ctx.beginPath();
           ctx.roundRect(x, y, barLen, barH, radius);
           ctx.fill();
-          // Subtle 1px border
           ctx.strokeStyle = `rgba(${ac.r}, ${ac.g}, ${ac.b}, 0.2)`;
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.roundRect(x, y, barLen, barH, radius);
           ctx.stroke();
           ctx.restore();
-          // Fill gradient (cyan → accent → pink)
           const fillW = Math.round(level * barLen);
           if (fillW > 0) {
             ctx.save();
@@ -404,7 +417,6 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
             ctx.fillRect(x, y, fillW, barH);
             ctx.restore();
           }
-          // Peak indicator (thin line, no glow)
           if (peak > 0.01) {
             const peakW = Math.max(1, Math.round(1.5 * sf));
             const peakX = x + Math.round(peak * (barLen - peakW));
@@ -417,12 +429,11 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         drawBar(bx, by, vuLevelRef.current.L, vuPeakRef.current.L);
         drawBar(bx, by + barH + gap, vuLevelRef.current.R, vuPeakRef.current.R);
       }
-
       raf = requestAnimationFrame(render);
     };
     render();
     return () => { cancelAnimationFrame(raf); };
-  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU, exportPhase]);
+  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU, exportPhase, bgParallax, parallaxEngine]);
 
   return <canvas ref={innerRef} width={width} height={height} />;
 });

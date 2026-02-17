@@ -17,7 +17,7 @@ export default function App() {
 	const [theme, setTheme] = useState('dark');
 	const [color, setColor] = useState('#7aa2ff');
 	// Background controls
-	const [bgMode, setBgMode] = useState<'none'|'color'|'image'>('none');
+	const [bgMode, setBgMode] = useState<'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'>('none');
 	const [bgColor, setBgColor] = useState<string>('#101321');
 	const [bgImageUrl, setBgImageUrl] = useState<string>('');
 	const [bgFit, setBgFit] = useState<'cover'|'contain'|'stretch'>('cover');
@@ -76,6 +76,30 @@ export default function App() {
 	const [volume, setVolume] = useState<number>(80);
 	const wrapRef = useRef<HTMLDivElement | null>(null);
 
+	// Intro/Outro duration (seconds) — visible in UI
+	const [introSecs, setIntroSecs] = useState<number>(4);
+	const [outroSecs, setOutroSecs] = useState<number>(5);
+
+	// Preview canvas size (smaller than export to save memory)
+	const previewSize = useMemo(() => {
+		const h = Math.min(480, parseInt(res, 10));
+		const w = Math.round(h * (aspect === '9:16' ? 9 / 16 : 16 / 9));
+		if (aspect === '9:16') return { w: h, h: w };
+		return { w, h };
+	}, [aspect, res]);
+
+	// Collapsible section state
+	const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+		general: true,
+		panels: false,
+		character: false,
+		camera: false,
+		text: false,
+		export: false,
+		server: false,
+	});
+	const toggleSection = (key: string) => setOpenSections(s => ({ ...s, [key]: !s[key] }));
+
 	// Server render state
 	const [serverProgress, setServerProgress] = useState(0);
 	const [serverStatus, setServerStatus] = useState('');
@@ -117,8 +141,10 @@ export default function App() {
 
 	const fetchRenderedFiles = async () => {
 		try {
-			const resp = await fetch('http://localhost:9090/rendered/list');
-			if (resp.ok) setRenderedFiles(await resp.json());
+			// Try same-origin first (Vite plugin), fall back to Express server
+			let resp = await fetch('/rendered/list').catch(() => null);
+			if (!resp || !resp.ok) resp = await fetch('http://localhost:9090/rendered/list').catch(() => null);
+			if (resp && resp.ok) setRenderedFiles(await resp.json());
 		} catch {}
 	};
 	useEffect(() => { fetchRenderedFiles(); }, []);
@@ -172,22 +198,20 @@ export default function App() {
 		if (!canvas) { setExportError('Export canvas not ready'); return null; }
 		if (muteDuringExport) setPlaybackMuted(true);
 		setExporting(true); setExportProgress(0); setExportError('');
-		const INTRO_SECS = 4;
-		const OUTRO_SECS = 5;
 		const mime = codec === 'vp9' ? 'video/webm;codecs=vp9,opus' : 'video/webm;codecs=vp8,opus';
 		// Start recording with intro phase
 		setExportPhase('intro');
 		audio.currentTime = 0;
 		start(canvas, getAudioStream(), { fps, mime, audioBitsPerSecond: aBitrate * 1000, videoBitsPerSecond: vBitrate * 1000 });
 		// Record intro: dark screen with title/artist/frozen countdown
-		await new Promise(r => setTimeout(r, INTRO_SECS * 1000));
+		await new Promise(r => setTimeout(r, introSecs * 1000));
 		// Switch to playing phase and start audio
 		setExportPhase('playing');
 		await audio.play();
-		const totalDur = (audio.duration || 0) + INTRO_SECS + OUTRO_SECS;
+		const totalDur = (audio.duration || 0) + introSecs + outroSecs;
 		const tick = () => {
 			if (audio.duration > 0) {
-				const elapsed = INTRO_SECS + (audio.currentTime || 0);
+				const elapsed = introSecs + (audio.currentTime || 0);
 				setExportProgress(Math.min(1, elapsed / totalDur));
 			}
 			if (!audio.paused && !audio.ended) { requestAnimationFrame(tick); }
@@ -203,7 +227,7 @@ export default function App() {
 		audio.pause();
 		// Switch to outro phase
 		setExportPhase('outro');
-		await new Promise(r => setTimeout(r, OUTRO_SECS * 1000));
+		await new Promise(r => setTimeout(r, outroSecs * 1000));
 		setExportPhase(undefined);
 		const blob = await stop();
 		if (muteDuringExport) setPlaybackMuted(false);
@@ -412,8 +436,6 @@ export default function App() {
 				// This ensures the video pipeline is fully primed so audio and video are in sync from frame 1.
 				// We record extra silent frames that the server will trim with ffmpeg.
 				const RECORDER_PREBUFFER_SECS = 3;
-				const INTRO_SECS = 4;
-				const OUTRO_SECS = 5;
 				// Start in intro phase (dark screen with title/artist/frozen countdown)
 				setExportPhase('intro');
 				start(canvas, getAudioStream(), { fps: fpsQ, mime: mimeOut || undefined, audioBitsPerSecond: aBitQ * 1000, videoBitsPerSecond: vBitQ * 1000 });
@@ -424,21 +446,21 @@ export default function App() {
 				// Expose the trim offset so the server knows how much to cut (prebuffer only, intro is kept)
 				(window as any).__exportTrimStart = RECORDER_PREBUFFER_SECS;
 				// Record intro dark screen
-				await new Promise(r => setTimeout(r, INTRO_SECS * 1000));
+				await new Promise(r => setTimeout(r, introSecs * 1000));
 				console.log('[auto-export] Intro done, starting audio playback');
 				// Switch to playing phase
 				setExportPhase('playing');
 				(window as any).__exportProgress = 0;
 				a.currentTime = 0;
 				await a.play();
-				const totalDur = INTRO_SECS + (a.duration || 0) + OUTRO_SECS;
+				const totalDur = introSecs + (a.duration || 0) + outroSecs;
 				console.log('[auto-export] Playback started, duration:', a.duration);
 				await new Promise<void>((resolve) => {
 					const startTime = Date.now();
 					const maxWaitMs = (a.duration + 5) * 1000; // duration + 5s safety margin
 					const check = () => {
 						if (a.duration > 0) {
-							const elapsed = INTRO_SECS + (a.currentTime || 0);
+							const elapsed = introSecs + (a.currentTime || 0);
 							const p = Math.min(1, elapsed / totalDur);
 							(window as any).__exportProgress = p;
 						}
@@ -455,7 +477,7 @@ export default function App() {
 				// Record outro: dark screen with title/artist and 00:00 countdown
 				console.log('[auto-export] Recording outro...');
 				setExportPhase('outro');
-				await new Promise(r => setTimeout(r, OUTRO_SECS * 1000));
+				await new Promise(r => setTimeout(r, outroSecs * 1000));
 				(window as any).__exportProgress = 1;
 				setExportPhase(undefined);
 				console.log('[auto-export] Stopping recorder...');
@@ -577,203 +599,449 @@ export default function App() {
 				<button className="icon-btn" onClick={() => setShowSettings(s => !s)} aria-label="Toggle Settings">⚙︎ Settings</button>
 			</div>
 			<aside className={`settings-drawer ${showSettings ? 'open' : ''}`}>
-			<div className="toolbar">
-				<label>
-					Layout
-					<select value={layout} onChange={e => {
-						const nextLayout = e.target.value as LayoutMode;
-						setLayout(nextLayout);
-						const nextCount = nextLayout === '4' ? 4 : nextLayout === '1' ? 1 : 2;
-						setPanels(prev => {
-							const next = [...prev];
-							if (next.length < nextCount) {
-								for (let i = next.length; i < nextCount; i++) next.push({ mode, color, band: 'full', colors: defaultPanelColors, hgView: 'top' });
-							} else if (next.length > nextCount) {
-								next.length = nextCount;
-							}
-							return next;
-						});
-					}}>
-						<option value='1'>1</option>
-						<option value='2-horizontal'>2 horizontal</option>
-						<option value='2-vertical'>2 vertical</option>
-						<option value='4'>4</option>
-					</select>
-				</label>
-					<label>
-						Default Mode
-						<select value={mode} onChange={e => setMode(e.target.value as VisualizerMode)}>
-											{VISUALIZER_MODES.filter(m => m !== 'dancer-fbx').map(m => (
-								<option key={m} value={m}>{LABELS[m]}</option>
-							))}
-						</select>
-					</label>
-				<label>
-					Theme
-					<select value={theme} onChange={e => setTheme(e.target.value)}>
-						<option value='dark'>Dark</option>
-						<option value='light'>Light</option>
-						<option value='neon'>Neon</option>
-					</select>
-				</label>
-				<label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-					Accent Color
-					<input type='color' value={color} onChange={e => setColor(e.target.value)} />
-					<span title="Accent" style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid var(--panelBorder)', background: color }}></span>
-				</label>
-				{/* Background controls */}
-				<label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-					Background
-					<select value={bgMode} onChange={e => setBgMode(e.target.value as 'none'|'color'|'image')}>
-						<option value='none'>None</option>
-						<option value='color'>Color</option>
-						<option value='image'>Image</option>
-					</select>
-				</label>
-				{bgMode === 'color' && (
-					<label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-						Color
-						<input type='color' value={bgColor} onChange={e => setBgColor(e.target.value)} />
-						<span style={{ width: 18, height: 18, borderRadius: 4, border: '1px solid var(--panelBorder)', background: bgColor }}></span>
-						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-							Opacity
-							<input type='range' min={0} max={100} value={Math.round(bgOpacity * 100)} onChange={e => setBgOpacity(Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 100)))} />
-							<span style={{ width: 36, textAlign: 'right' }}>{Math.round(bgOpacity * 100)}%</span>
-						</label>
-					</label>
-				)}
-				{bgMode === 'image' && (
-					<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-						<div className="upload">
-							<button className="icon-btn" aria-label="Upload Background">＋ Bg</button>
-							<input type='file' accept='image/*' aria-label='Upload Background Image' onChange={e => {
-								const f = e.target.files?.[0];
-								if (f) {
-									const url = URL.createObjectURL(f);
-									setBgImageUrl(url);
-								}
-							}} />
-						</div>
-						<select value={bgFit} onChange={e => setBgFit(e.target.value as 'cover'|'contain'|'stretch')}>
-							<option value='cover'>Cover</option>
-							<option value='contain'>Contain</option>
-							<option value='stretch'>Stretch</option>
-						</select>
-						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-							Opacity
-							<input type='range' min={0} max={100} value={Math.round(bgOpacity * 100)} onChange={e => setBgOpacity(Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 100)))} />
-							<span style={{ width: 36, textAlign: 'right' }}>{Math.round(bgOpacity * 100)}%</span>
-						</label>
-					</div>
-				)}
-				{ready && (
-					<>
-						{/* Export settings */}
-						<div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-							<label>Aspect
-								<select value={aspect} onChange={e => setAspect(e.target.value as '16:9'|'9:16')}>
-									<option value='16:9'>16:9</option>
-									<option value='9:16'>9:16</option>
+
+			{/* ── GENERAL ── */}
+			<div className="section">
+				<div className="section-header" onClick={() => toggleSection('general')}>
+					<span className={`chevron ${openSections.general ? 'open' : ''}`}>▶</span>
+					General
+				</div>
+				{openSections.general && (
+					<div className="section-body">
+						<div className="field-row">
+							<label>Layout
+								<select value={layout} onChange={e => {
+									const nextLayout = e.target.value as LayoutMode;
+									setLayout(nextLayout);
+									const nextCount = nextLayout === '4' ? 4 : nextLayout === '1' ? 1 : 2;
+									setPanels(prev => {
+										const next = [...prev];
+										if (next.length < nextCount) {
+											for (let i = next.length; i < nextCount; i++) next.push({ mode, color, band: 'full', colors: defaultPanelColors, hgView: 'top' });
+										} else if (next.length > nextCount) { next.length = nextCount; }
+										return next;
+									});
+								}}>
+									<option value='1'>1</option>
+									<option value='2-horizontal'>2 Horizontal</option>
+									<option value='2-vertical'>2 Vertical</option>
+									<option value='4'>4</option>
 								</select>
 							</label>
-							<label>Resolution
+						</div>
+						<div className="field-row">
+							<label>Theme
+								<select value={theme} onChange={e => setTheme(e.target.value)}>
+									<option value='dark'>Dark</option>
+									<option value='light'>Light</option>
+									<option value='neon'>Neon</option>
+								</select>
+							</label>
+							<label>Accent
+								<input type='color' value={color} onChange={e => setColor(e.target.value)} />
+								<span className="swatch" style={{ background: color }} />
+							</label>
+						</div>
+						<div className="field-row">
+							<label>Background
+							<select value={bgMode} onChange={e => setBgMode(e.target.value as typeof bgMode)}>
+								<option value='none'>None</option>
+								<option value='color'>Color</option>
+								<option value='image'>Image</option>
+								<option value='parallax-spotlights'>Parallax (Spotlights)</option>
+								<option value='parallax-lasers'>Parallax (Lasers)</option>
+								<option value='parallax-tunnel'>Parallax (Tunnel/Starfield)</option>
+								<option value='parallax-rays'>Parallax (Rays)</option>
+							</select>
+							</label>
+							{bgMode === 'color' && (
+								<>
+									<label>
+										<input type='color' value={bgColor} onChange={e => setBgColor(e.target.value)} />
+										<span className="swatch" style={{ background: bgColor }} />
+									</label>
+									<label>Opacity
+										<input type='range' min={0} max={100} value={Math.round(bgOpacity * 100)} onChange={e => setBgOpacity(parseInt(e.target.value, 10) / 100)} />
+										<span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{Math.round(bgOpacity * 100)}%</span>
+									</label>
+								</>
+							)}
+							{bgMode === 'image' && (
+								<>
+									<div className="upload" style={{ position: 'relative' }}>
+										<button className="icon-btn" aria-label="Upload Background">+ Bg</button>
+										<input type='file' accept='image/*' style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} onChange={e => {
+											const f = e.target.files?.[0];
+											if (f) setBgImageUrl(URL.createObjectURL(f));
+										}} />
+									</div>
+									<select value={bgFit} onChange={e => setBgFit(e.target.value as 'cover'|'contain'|'stretch')}>
+										<option value='cover'>Cover</option>
+										<option value='contain'>Contain</option>
+										<option value='stretch'>Stretch</option>
+									</select>
+									<label>Opacity
+										<input type='range' min={0} max={100} value={Math.round(bgOpacity * 100)} onChange={e => setBgOpacity(parseInt(e.target.value, 10) / 100)} />
+										<span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{Math.round(bgOpacity * 100)}%</span>
+									</label>
+								</>
+							)}
+						</div>
+					</div>
+				)}
+			</div>
+
+			{/* ── PANELS ── */}
+			<div className="section">
+				<div className="section-header" onClick={() => toggleSection('panels')}>
+					<span className={`chevron ${openSections.panels ? 'open' : ''}`}>▶</span>
+					Panels
+				</div>
+				{openSections.panels && (
+					<div className="section-body">
+						{panels.map((p, i) => (
+							<div key={i} style={{ display: 'grid', gap: 6 }}>
+								<div className="field-label">Panel {i + 1}</div>
+								<div className="field-row">
+									<select value={p.mode} onChange={e => {
+										const val = e.target.value as VisualizerMode;
+										setPanels(old => old.map((x, idx) => idx === i ? { ...x, mode: val } : x));
+									}}>
+										{VISUALIZER_MODES.filter(m => m !== 'dancer-fbx').map(m => (
+											<option key={m} value={m}>{LABELS[m]}</option>
+										))}
+									</select>
+									<select value={p.band} onChange={e => {
+										const val = e.target.value as FrequencyBand;
+										setPanels(old => old.map((x, idx) => idx === i ? { ...x, band: val } : x));
+									}}>
+										<option value='full'>Full</option>
+										<option value='bass'>Bass</option>
+										<option value='mid'>Mid</option>
+										<option value='voice'>Voice</option>
+										<option value='treble'>Treble</option>
+									</select>
+									{(['high-graphics-fog','high-graphics-trunk','high-graphics-rings','high-graphics-net','high-graphics-rings-trails','high-graphics-flow-field','high-graphics-hexagon'] as VisualizerMode[]).includes(p.mode) && (
+										<select value={p.hgView ?? 'top'} onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, hgView: e.target.value as 'top'|'side' } : x))}>
+											<option value='top'>Top</option>
+											<option value='side'>Side</option>
+										</select>
+									)}
+									<input type='color' value={p.color} onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, color: e.target.value } : x))} />
+									<span className="swatch" style={{ background: p.color }} />
+								</div>
+								{p.mode !== 'wave' && (
+									<div className="field-row">
+										<label>Low <input type='color' value={p.colors?.low ?? defaultPanelColors.low} onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, colors: { ...(x.colors ?? defaultPanelColors), low: e.target.value } } : x))} /> <span className="swatch" style={{ background: p.colors?.low ?? defaultPanelColors.low, width: 12, height: 12 }} /></label>
+										<label>Mid <input type='color' value={p.colors?.mid ?? defaultPanelColors.mid} onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, colors: { ...(x.colors ?? defaultPanelColors), mid: e.target.value } } : x))} /> <span className="swatch" style={{ background: p.colors?.mid ?? defaultPanelColors.mid, width: 12, height: 12 }} /></label>
+										<label>High <input type='color' value={p.colors?.high ?? defaultPanelColors.high} onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, colors: { ...(x.colors ?? defaultPanelColors), high: e.target.value } } : x))} /> <span className="swatch" style={{ background: p.colors?.high ?? defaultPanelColors.high, width: 12, height: 12 }} /></label>
+									</div>
+								)}
+							</div>
+						))}
+					</div>
+				)}
+			</div>
+
+			{/* ── 3D CHARACTER ── */}
+			<div className="section">
+				<div className="section-header" onClick={() => toggleSection('character')}>
+					<span className={`chevron ${openSections.character ? 'open' : ''}`}>▶</span>
+					3D Character
+				</div>
+				{openSections.character && (
+					<div className="section-body">
+						<div className="field-row">
+							<label><input type='checkbox' checked={showDancer} onChange={e => setShowDancer(e.target.checked)} /> Show Character</label>
+						</div>
+						<div className="field-row">
+							<label>Position
+								<select value={dancerPos} onChange={e => setDancerPos(e.target.value as Position9)}>
+									<option value='lt'>Left Top</option><option value='mt'>Mid Top</option><option value='rt'>Right Top</option>
+									<option value='lm'>Left Mid</option><option value='mm'>Middle</option><option value='rm'>Right Mid</option>
+									<option value='lb'>Left Bottom</option><option value='mb'>Mid Bottom</option><option value='rb'>Right Bottom</option>
+								</select>
+							</label>
+						</div>
+						<div className="field-row">
+							<label>Size
+								<input type='range' min={10} max={100} value={dancerSize} onChange={e => setDancerSize(parseInt(e.target.value, 10))} style={{ flex: 1 }} />
+								<span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{dancerSize}%</span>
+							</label>
+						</div>
+						<div className="field-row">
+							<label>Character
+								<select value={dancerOverlaySources.characterUrl ?? ''} onChange={e => setDancerOverlaySources(s => ({ ...s, characterUrl: e.target.value }))}>
+									<option value="">Select…</option>
+									{charFiles.map(c => <option key={c} value={c}>{c.replace('/character/','')}</option>)}
+								</select>
+							</label>
+						</div>
+						<div className="field-row">
+							<label>FBX Path
+								<input placeholder="/character/hero.fbx" value={dancerOverlaySources.characterUrl ?? ''} onChange={e => setDancerOverlaySources(s => ({ ...s, characterUrl: e.target.value }))} style={{ flex: 1 }} />
+							</label>
+						</div>
+						<div className="field-label" style={{ marginTop: 4 }}>Animations</div>
+						<select multiple size={3} value={dancerOverlaySources.animationUrls ?? []} onChange={e => {
+							const selected: string[] = Array.from((e.target as HTMLSelectElement).selectedOptions).map(o => o.value);
+							setDancerOverlaySources(s => ({ ...s, animationUrls: selected }));
+						}} style={{ fontSize: 11 }}>
+							{animFiles.map(a => <option key={a} value={a}>{a.replace('/dance/','')}</option>)}
+						</select>
+						<input placeholder="Comma-separated paths" value={(dancerOverlaySources.animationUrls ?? []).join(', ')} onChange={e => {
+							const list = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+							setDancerOverlaySources(s => ({ ...s, animationUrls: list }));
+						}} style={{ fontSize: 11 }} />
+
+						{/* Color Flash */}
+						<div className="field-label" style={{ marginTop: 4 }}>Lighting</div>
+						<div className="field-row">
+							<label><input type='checkbox' checked={!!dancerOverlaySources.colorFlash?.enabled} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), enabled: e.target.checked } }))} /> Flash</label>
+							<select value={(dancerOverlaySources.colorFlash?.mode) ?? 'flash'} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), mode: e.target.value as 'flash'|'strobe'|'spot' } }))}>
+								<option value='flash'>Flash</option><option value='strobe'>Strobe</option><option value='spot'>Spot</option>
+							</select>
+							<input type='color' value={dancerOverlaySources.colorFlash?.colors?.[0] ?? '#ffffff'} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), colors: [e.target.value, s.colorFlash?.colors?.[1] ?? '#ff0080', s.colorFlash?.colors?.[2] ?? '#00d08a'], color: e.target.value } }))} />
+							<input type='color' value={dancerOverlaySources.colorFlash?.colors?.[1] ?? '#ff0080'} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), colors: [s.colorFlash?.colors?.[0] ?? '#ffffff', e.target.value, s.colorFlash?.colors?.[2] ?? '#00d08a'] } }))} />
+							<input type='color' value={dancerOverlaySources.colorFlash?.colors?.[2] ?? '#00d08a'} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), colors: [s.colorFlash?.colors?.[0] ?? '#ffffff', s.colorFlash?.colors?.[1] ?? '#ff0080', e.target.value] } }))} />
+						</div>
+						<div className="field-row">
+							<label>Intensity
+								<input type='range' min={0} max={100} value={Math.round((dancerOverlaySources.colorFlash?.intensity ?? 1) * 100)} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), intensity: parseInt(e.target.value, 10) / 100 } }))} />
+								<span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{Math.round((dancerOverlaySources.colorFlash?.intensity ?? 1) * 100)}%</span>
+							</label>
+							<label><input type='checkbox' checked={!!dancerOverlaySources.colorFlash?.rays} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), rays: e.target.checked } }))} /> Rays</label>
+							<label><input type='checkbox' checked={!!dancerOverlaySources.discoBall?.enabled} onChange={e => setDancerOverlaySources(s => ({ ...s, discoBall: { ...(s.discoBall ?? {}), enabled: e.target.checked } }))} /> Disco Ball</label>
+						</div>
+						{/* Preview */}
+						<DancerPreview sources={dancerOverlaySources} analyser={analyserNode} width={200} height={112} panelKey="overlay-preview" />
+					</div>
+				)}
+			</div>
+
+			{/* ── CAMERA ── */}
+			<div className="section">
+				<div className="section-header" onClick={() => toggleSection('camera')}>
+					<span className={`chevron ${openSections.camera ? 'open' : ''}`}>▶</span>
+					Camera
+				</div>
+				{openSections.camera && (
+					<div className="section-body">
+						<div className="field-row">
+							<label>Movement
+								<select value={dancerOverlaySources.cameraMode ?? 'static'} onChange={e => setDancerOverlaySources(s => ({ ...s, cameraMode: e.target.value as DancerSources['cameraMode'] }))}>
+									<option value="static">Static</option>
+									<option value="pan">Pan</option>
+									<option value="rotate">Rotate</option>
+								</select>
+							</label>
+						</div>
+						<div className="field-row">
+							<label>Elevation
+								<input type='range' min={-20} max={20} value={Math.round((dancerOverlaySources.cameraElevationPct ?? 0) * 100)} onChange={e => setDancerOverlaySources(s => ({ ...s, cameraElevationPct: parseInt(e.target.value, 10) / 100 }))} />
+								<span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{Math.round((dancerOverlaySources.cameraElevationPct ?? 0) * 100)}%</span>
+							</label>
+						</div>
+						<div className="field-row">
+							<label>Tilt
+								<input type='range' min={-15} max={15} value={Math.round(dancerOverlaySources.cameraTiltDeg ?? 0)} onChange={e => setDancerOverlaySources(s => ({ ...s, cameraTiltDeg: parseInt(e.target.value, 10) }))} />
+								<span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{Math.round(dancerOverlaySources.cameraTiltDeg ?? 0)}°</span>
+							</label>
+						</div>
+						<div className="field-row">
+							<label>Speed
+								<input type='range' min={0} max={200} value={dancerOverlaySources.cameraSpeed ?? 100} onChange={e => setDancerOverlaySources(s => ({ ...s, cameraSpeed: parseInt(e.target.value, 10) }))} />
+								<span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{dancerOverlaySources.cameraSpeed ?? 100}%</span>
+							</label>
+						</div>
+						<div className="field-row">
+							<label>Distance
+								<input type='range' min={20} max={200} value={dancerOverlaySources.cameraDistance ?? 100} onChange={e => setDancerOverlaySources(s => ({ ...s, cameraDistance: parseInt(e.target.value, 10) }))} />
+								<span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{dancerOverlaySources.cameraDistance ?? 100}%</span>
+							</label>
+						</div>
+					</div>
+				)}
+			</div>
+
+			{/* ── TEXT OVERLAYS ── */}
+			<div className="section">
+				<div className="section-header" onClick={() => toggleSection('text')}>
+					<span className={`chevron ${openSections.text ? 'open' : ''}`}>▶</span>
+					Text Overlays
+				</div>
+				{openSections.text && (
+					<div className="section-body">
+						{/* Intro / Outro timing */}
+						<div className="field-label">Intro &amp; Outro</div>
+						<div className="field-row">
+							<label>Intro
+								<input type='range' min={0} max={10} step={1} value={introSecs} onChange={e => setIntroSecs(parseInt(e.target.value, 10))} />
+								<span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{introSecs}s</span>
+							</label>
+							<label>Outro
+								<input type='range' min={0} max={10} step={1} value={outroSecs} onChange={e => setOutroSecs(parseInt(e.target.value, 10))} />
+								<span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{outroSecs}s</span>
+							</label>
+						</div>
+
+						{/* Title */}
+						<div className="field-label" style={{ marginTop: 4 }}>Title</div>
+						<div className="field-row">
+							<input placeholder="Title text" value={title} onChange={e => setTitle(e.target.value)} style={{ flex: 1 }} />
+							<select value={titlePos} onChange={e => setTitlePos(e.target.value as Position9)}>
+								<option value='lt'>LT</option><option value='mt'>MT</option><option value='rt'>RT</option>
+								<option value='lm'>LM</option><option value='mm'>MM</option><option value='rm'>RM</option>
+								<option value='lb'>LB</option><option value='mb'>MB</option><option value='rb'>RB</option>
+							</select>
+							<input type='color' value={titleColor} onChange={e => setTitleColor(e.target.value)} />
+						</div>
+						<div className="field-row">
+							<label><input type='checkbox' checked={titleFx.float} onChange={e => setTitleFx(s => ({ ...s, float: e.target.checked }))} /> Float</label>
+							<label><input type='checkbox' checked={titleFx.bounce} onChange={e => setTitleFx(s => ({ ...s, bounce: e.target.checked }))} /> Bounce</label>
+							<label><input type='checkbox' checked={titleFx.pulse} onChange={e => setTitleFx(s => ({ ...s, pulse: e.target.checked }))} /> Pulse</label>
+						</div>
+
+						{/* Description */}
+						<div className="field-label" style={{ marginTop: 4 }}>Description</div>
+						<div className="field-row">
+							<input placeholder="Description text" value={desc} onChange={e => setDesc(e.target.value)} style={{ flex: 1 }} />
+							<select value={descPos} onChange={e => setDescPos(e.target.value as Position9)}>
+								<option value='lt'>LT</option><option value='mt'>MT</option><option value='rt'>RT</option>
+								<option value='lm'>LM</option><option value='mm'>MM</option><option value='rm'>RM</option>
+								<option value='lb'>LB</option><option value='mb'>MB</option><option value='rb'>RB</option>
+							</select>
+							<input type='color' value={descColor} onChange={e => setDescColor(e.target.value)} />
+						</div>
+						<div className="field-row">
+							<label><input type='checkbox' checked={descFx.float} onChange={e => setDescFx(s => ({ ...s, float: e.target.checked }))} /> Float</label>
+							<label><input type='checkbox' checked={descFx.bounce} onChange={e => setDescFx(s => ({ ...s, bounce: e.target.checked }))} /> Bounce</label>
+							<label><input type='checkbox' checked={descFx.pulse} onChange={e => setDescFx(s => ({ ...s, pulse: e.target.checked }))} /> Pulse</label>
+						</div>
+
+						{/* Countdown */}
+						<div className="field-label" style={{ marginTop: 4 }}>Countdown</div>
+						<div className="field-row">
+							<select value={countPos} onChange={e => setCountPos(e.target.value as Position5)}>
+								<option value='lt'>Left Top</option><option value='ct'>Center Top</option><option value='rt'>Right Top</option>
+								<option value='bl'>Bottom Left</option><option value='br'>Bottom Right</option>
+							</select>
+							<input type='color' value={countColor} onChange={e => setCountColor(e.target.value)} />
+						</div>
+						<div className="field-row">
+							<label><input type='checkbox' checked={countFx.float} onChange={e => setCountFx(s => ({ ...s, float: e.target.checked }))} /> Float</label>
+							<label><input type='checkbox' checked={countFx.bounce} onChange={e => setCountFx(s => ({ ...s, bounce: e.target.checked }))} /> Bounce</label>
+							<label><input type='checkbox' checked={countFx.pulse} onChange={e => setCountFx(s => ({ ...s, pulse: e.target.checked }))} /> Pulse</label>
+						</div>
+					</div>
+				)}
+			</div>
+
+			{/* ── EXPORT ── */}
+			{ready && (
+			<div className="section">
+				<div className="section-header" onClick={() => toggleSection('export')}>
+					<span className={`chevron ${openSections.export ? 'open' : ''}`}>▶</span>
+					Export
+				</div>
+				{openSections.export && (
+					<div className="section-body">
+						<div className="field-row">
+							<label>Aspect
+								<select value={aspect} onChange={e => setAspect(e.target.value as '16:9'|'9:16')}>
+									<option value='16:9'>16:9</option><option value='9:16'>9:16</option>
+								</select>
+							</label>
+							<label>Res
 								<select value={res} onChange={e => setRes(e.target.value as typeof res)}>
-									<option value='360'>360p</option>
-									<option value='480'>480p</option>
-									<option value='720'>720p</option>
-									<option value='1080'>1080p</option>
+									<option value='360'>360p</option><option value='480'>480p</option>
+									<option value='720'>720p</option><option value='1080'>1080p</option>
 								</select>
 							</label>
 							<label>FPS
 								<select value={fps} onChange={e => setFps(parseInt(e.target.value, 10) as 24|30|60)}>
-									<option value={24}>24</option>
-									<option value={30}>30</option>
-									<option value={60}>60</option>
+									<option value={24}>24</option><option value={30}>30</option><option value={60}>60</option>
 								</select>
 							</label>
+						</div>
+						<div className="field-row">
 							<label>Format
 								<select value={outputFormat} onChange={e => setOutputFormat(e.target.value as 'mp4'|'webm')}>
-									<option value='mp4'>MP4 (H.264)</option>
-									<option value='webm'>WebM (VP9)</option>
+									<option value='mp4'>MP4</option><option value='webm'>WebM</option>
 								</select>
 							</label>
-							<label>Video bitrate
+							<label>Video
 								<select value={vBitrate} onChange={e => setVBitrate(parseInt(e.target.value, 10))}>
-									<option value={2000}>2 Mbps</option>
-									<option value={4000}>4 Mbps</option>
-									<option value={6000}>6 Mbps</option>
-									<option value={8000}>8 Mbps</option>
+									<option value={2000}>2 Mbps</option><option value={4000}>4 Mbps</option>
+									<option value={6000}>6 Mbps</option><option value={8000}>8 Mbps</option>
 									<option value={12000}>12 Mbps</option>
 								</select>
 							</label>
-							<label>Audio bitrate
+							<label>Audio
 								<select value={aBitrate} onChange={e => setABitrate(parseInt(e.target.value, 10))}>
-									<option value={128}>128 kbps</option>
-									<option value={160}>160 kbps</option>
-									<option value={192}>192 kbps</option>
-									<option value={256}>256 kbps</option>
-									<option value={320}>320 kbps</option>
+									<option value={128}>128k</option><option value={160}>160k</option>
+									<option value={192}>192k</option><option value={256}>256k</option>
+									<option value={320}>320k</option>
 								</select>
 							</label>
+						</div>
+						<div className="field-row">
 							<label><input type='checkbox' checked={muteDuringExport} onChange={e => setMuteDuringExport(e.target.checked)} /> Mute during export</label>
-							{/* MP4 transcode option removed */}
-							<span style={{ color: 'var(--muted)', fontSize: 12 }}>Target: {effectiveSize.w}×{effectiveSize.h}</span>
+							<span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 'auto' }}>{effectiveSize.w}×{effectiveSize.h}</span>
 						</div>
 						<button disabled={exporting} onClick={async () => {
 							const blob = await runExport();
 							if (blob) {
 								const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `visualizer_${res}_${aspect.replace(':','-')}.webm`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 							}
-						}}>
-							Export
-						</button>
+						}}>Export</button>
 						{exporting && (
-							<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-								<div style={{ width: 160, height: 8, background: 'var(--panelBorder)', borderRadius: 4, overflow: 'hidden' }}>
-									<div style={{ width: `${Math.round(exportProgress * 100)}%`, height: '100%', background: 'var(--accent, #7aa2ff)' }} />
+							<div className="field-row">
+								<div style={{ flex: 1, height: 6, background: 'var(--panelBorder)', borderRadius: 3, overflow: 'hidden' }}>
+									<div style={{ width: `${Math.round(exportProgress * 100)}%`, height: '100%', background: 'var(--accent)', transition: 'width 0.3s' }} />
 								</div>
-								<span style={{ fontSize: 12, color: 'var(--muted)' }}>Exporting {Math.round(exportProgress * 100)}%</span>
+								<span style={{ fontSize: 11, color: 'var(--muted)' }}>{Math.round(exportProgress * 100)}%</span>
 							</div>
 						)}
-						{exportError && (
-							<div style={{ color: 'var(--danger, #ff6b6b)', fontSize: 12 }}>{exportError}</div>
-						)}
-						{/* Server Render button + progress circle */}
-						<div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+						{exportError && <div style={{ color: '#ff6b6b', fontSize: 11 }}>{exportError}</div>}
+					</div>
+				)}
+			</div>
+			)}
+
+			{/* ── SERVER RENDER ── */}
+			{ready && (
+			<div className="section">
+				<div className="section-header" onClick={() => toggleSection('server')}>
+					<span className={`chevron ${openSections.server ? 'open' : ''}`}>▶</span>
+					Server Render
+				</div>
+				{openSections.server && (
+					<div className="section-body">
+						<div className="field-row" style={{ gap: 8 }}>
 							<button disabled={serverRendering || !audioFile} onClick={async () => {
 								if (!audioFile) return;
 								setServerRendering(true); setServerProgress(0); setServerError(''); setServerStatus('uploading');
 								try {
 									const fd = new FormData();
 									fd.append('file', audioFile);
-									fd.append('aspect', aspect);
-									fd.append('res', res);
-									fd.append('fps', String(fps));
-									fd.append('codec', codec);								fd.append('format', outputFormat);									fd.append('vBitrate', String(vBitrate));
-									fd.append('aBitrate', String(aBitrate));
-									fd.append('mode', panels[0]?.mode || mode);
-									fd.append('layout', layout);
-									fd.append('panels', JSON.stringify(panels));
-									fd.append('theme', theme);
-									// Dancer params
+									fd.append('aspect', aspect); fd.append('res', res); fd.append('fps', String(fps));
+									fd.append('codec', codec); fd.append('format', outputFormat);
+									fd.append('vBitrate', String(vBitrate)); fd.append('aBitrate', String(aBitrate));
+									fd.append('mode', panels[0]?.mode || mode); fd.append('layout', layout);
+									fd.append('panels', JSON.stringify(panels)); fd.append('theme', theme);
 									if (showDancer && dancerOverlaySources.characterUrl) {
 										fd.append('character', dancerOverlaySources.characterUrl);
-										if (dancerOverlaySources.animationUrls?.length)
-											fd.append('animations', dancerOverlaySources.animationUrls.join(','));
-										fd.append('dancerSize', String(dancerSize));
-										fd.append('dancerPos', dancerPos);
+										if (dancerOverlaySources.animationUrls?.length) fd.append('animations', dancerOverlaySources.animationUrls.join(','));
+										fd.append('dancerSize', String(dancerSize)); fd.append('dancerPos', dancerPos);
 									}
-									// Text overlays
 									if (title) { fd.append('title', title); fd.append('titlePos', titlePos); fd.append('titleColor', titleColor); if (titleFx.float) fd.append('titleFloat', '1'); if (titleFx.bounce) fd.append('titleBounce', '1'); if (titleFx.pulse) fd.append('titlePulse', '1'); }
 									if (desc) { fd.append('desc', desc); fd.append('descPos', descPos); fd.append('descColor', descColor); if (descFx.float) fd.append('descFloat', '1'); if (descFx.bounce) fd.append('descBounce', '1'); if (descFx.pulse) fd.append('descPulse', '1'); }
-									// Countdown timer
 									fd.append('showCountdown', '1'); fd.append('countPos', countPos); fd.append('countColor', countColor); if (countFx.float) fd.append('countFloat', '1'); if (countFx.bounce) fd.append('countBounce', '1'); if (countFx.pulse) fd.append('countPulse', '1');
-									// Background
 									fd.append('bgMode', bgMode);
 									if (bgMode === 'color') fd.append('bgColor', bgColor);
 									if (bgMode === 'image' && bgImageUrl) fd.append('bgImageUrl', bgImageUrl);
-									fd.append('bgFit', bgFit);
-									fd.append('bgOpacity', String(bgOpacity));
+									fd.append('bgFit', bgFit); fd.append('bgOpacity', String(bgOpacity));
 
 									const resp = await fetch('http://localhost:9090/render', { method: 'POST', body: fd });
 									const reader = resp.body?.getReader();
@@ -803,377 +1071,76 @@ export default function App() {
 										finished = processLines(decoder.decode(value, { stream: true }));
 										if (finished) break;
 									}
-									// Process any remaining data in the buffer (clear buf first to avoid double-append)
 									if (!finished && buf.trim()) {
-										const remaining = buf;
-										buf = '';
+										const remaining = buf; buf = '';
 										finished = processLines(remaining + '\n');
 									}
-									if (!finished) {
-										setServerRendering(false);
-										fetchRenderedFiles();
-									}
+									if (!finished) { setServerRendering(false); fetchRenderedFiles(); }
 								} catch (e: any) {
-									setServerError(String(e.message || e));
-									setServerRendering(false);
+									setServerError(String(e.message || e)); setServerRendering(false);
 								}
-							}} style={{ fontWeight: 600 }}>
+							}} style={{ fontWeight: 600, flex: 1 }}>
 								{serverRendering
-								? (serverStatus === 'uploading' ? 'Uploading…'
-									: serverStatus === 'loading' ? 'Loading…'
-									: serverStatus === 'buffering' ? 'Buffering…'
-									: serverStatus === 'recording' ? 'Recording…'
-									: serverStatus === 'encoding' ? 'Encoding…'
-									: serverStatus === 'transcoding' ? 'Transcoding…'
-									: serverStatus === 'saving' ? 'Saving…'
-									: 'Processing…')
-								: '🎬 Render on Server'}
+									? (serverStatus === 'uploading' ? 'Uploading…' : serverStatus === 'loading' ? 'Loading…' : serverStatus === 'buffering' ? 'Buffering…' : serverStatus === 'recording' ? 'Recording…' : serverStatus === 'encoding' ? 'Encoding…' : serverStatus === 'transcoding' ? 'Transcoding…' : serverStatus === 'saving' ? 'Saving…' : 'Processing…')
+									: 'Render on Server'}
 							</button>
 							{serverRendering && (() => {
 								const phases = [
-									{ key: 'uploading', icon: '⬆️', label: 'Upload' },
-									{ key: 'loading', icon: '📦', label: 'Load' },
-									{ key: 'buffering', icon: '⏳', label: 'Buffer' },
-									{ key: 'recording', icon: '🔴', label: 'Record' },
-									{ key: 'encoding', icon: '📤', label: 'Encode' },
-									{ key: 'transcoding', icon: '🔄', label: 'Convert' },
+									{ key: 'uploading', icon: '⬆️', label: 'Upload' }, { key: 'loading', icon: '📦', label: 'Load' },
+									{ key: 'buffering', icon: '⏳', label: 'Buffer' }, { key: 'recording', icon: '🔴', label: 'Record' },
+									{ key: 'encoding', icon: '📤', label: 'Encode' }, { key: 'transcoding', icon: '🔄', label: 'Convert' },
 									{ key: 'saving', icon: '💾', label: 'Save' },
 								];
 								const currentIdx = phases.findIndex(p => p.key === serverStatus);
-								const phaseColors: Record<string, string> = {
-									uploading: '#7aa2ff', loading: '#7aa2ff', buffering: '#ffa64d',
-									recording: '#ff5555', encoding: '#aa77ff',
-									transcoding: '#55cc77', saving: '#55cc77',
-								};
-								const color = phaseColors[serverStatus] || '#7aa2ff';
+								const phaseColors: Record<string, string> = { uploading: '#7aa2ff', loading: '#7aa2ff', buffering: '#ffa64d', recording: '#ff5555', encoding: '#aa77ff', transcoding: '#55cc77', saving: '#55cc77' };
+								const clr = phaseColors[serverStatus] || '#7aa2ff';
 								const isIndeterminate = serverStatus !== 'recording';
-								const circ = 2 * Math.PI * 24;
+								const circ = 2 * Math.PI * 18;
 								return (
-									<div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-										{/* Phase steps */}
-										<div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
+									<div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+										<div style={{ display: 'flex', gap: 2 }}>
 											{phases.map((p, i) => (
-												<div key={p.key} style={{
-													width: 8, height: 8, borderRadius: '50%',
-													background: i < currentIdx ? '#55cc77'
-														: i === currentIdx ? color
-														: 'var(--panelBorder, #333)',
-													transition: 'background 0.3s',
-													boxShadow: i === currentIdx ? `0 0 6px ${color}` : 'none',
-												}} title={p.label} />
+												<div key={p.key} style={{ width: 6, height: 6, borderRadius: '50%', background: i < currentIdx ? '#55cc77' : i === currentIdx ? clr : 'var(--panelBorder)', transition: 'background 0.3s', boxShadow: i === currentIdx ? `0 0 4px ${clr}` : 'none' }} title={p.label} />
 											))}
 										</div>
-										{/* Circular progress */}
-										<div style={{ position: 'relative', width: 56, height: 56 }}>
-											<svg width={56} height={56} viewBox="0 0 56 56">
-												<circle cx={28} cy={28} r={24} fill="none" stroke="var(--panelBorder, #333)" strokeWidth={4} />
+										<div style={{ position: 'relative', width: 42, height: 42 }}>
+											<svg width={42} height={42} viewBox="0 0 42 42">
+												<circle cx={21} cy={21} r={18} fill="none" stroke="var(--panelBorder)" strokeWidth={3} />
 												{isIndeterminate ? (
-													<circle cx={28} cy={28} r={24} fill="none" stroke={color} strokeWidth={4}
-														strokeDasharray={`${circ * 0.25} ${circ * 0.75}`}
-														strokeLinecap="round"
-														transform="rotate(-90 28 28)"
-														style={{ animation: 'spin 1s linear infinite', transformOrigin: '28px 28px' }}
-													/>
+													<circle cx={21} cy={21} r={18} fill="none" stroke={clr} strokeWidth={3} strokeDasharray={`${circ * 0.25} ${circ * 0.75}`} strokeLinecap="round" transform="rotate(-90 21 21)" style={{ animation: 'spin 1s linear infinite', transformOrigin: '21px 21px' }} />
 												) : (
-													<circle cx={28} cy={28} r={24} fill="none" stroke={color} strokeWidth={4}
-														strokeDasharray={`${circ}`}
-														strokeDashoffset={`${circ * (1 - serverProgress / 100)}`}
-														strokeLinecap="round"
-														transform="rotate(-90 28 28)"
-														style={{ transition: 'stroke-dashoffset 0.3s ease' }}
-													/>
+													<circle cx={21} cy={21} r={18} fill="none" stroke={clr} strokeWidth={3} strokeDasharray={`${circ}`} strokeDashoffset={`${circ * (1 - serverProgress / 100)}`} strokeLinecap="round" transform="rotate(-90 21 21)" style={{ transition: 'stroke-dashoffset 0.3s ease' }} />
 												)}
 											</svg>
-											<span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
+											<span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>
 												{isIndeterminate ? phases[currentIdx]?.icon || '⏳' : `${serverProgress}%`}
 											</span>
 										</div>
 									</div>
 								);
 							})()}
-							{serverError && (
-								<div style={{ color: 'var(--danger, #ff6b6b)', fontSize: 12 }}>{serverError}</div>
-							)}
 						</div>
-					</>
-				)}
-				{/* Rendered files list – always visible */}
-				<div style={{ marginTop: 8 }}>
-					<div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 }}>Rendered Files</div>
-					{renderedFiles.length === 0 ? (
-						<div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>No rendered files yet</div>
-					) : (
-						<div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-							{renderedFiles.map(f => (
-								<div key={f.name} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
-									<a href={`/rendered/${f.name}`} download style={{ color: 'var(--accent, #7aa2ff)', textDecoration: 'none' }}>
-										{f.name}
-									</a>
-									<span style={{ color: 'var(--muted)' }}>{(f.size / 1048576).toFixed(1)} MB</span>
-									<span style={{ color: 'var(--muted)' }}>{new Date(f.date).toLocaleString()}</span>
-								</div>
-							))}
-						</div>
-					)}
-				</div>
-			</div>
+						{serverError && <div style={{ color: '#ff6b6b', fontSize: 11 }}>{serverError}</div>}
 
-			<div className="toolbar" style={{ gap: 12 }}>
-				{panels.map((p, i) => (
-					<div key={i} style={{ display: 'grid', gap: 6 }}>
-						<div style={{ color: 'var(--muted)' }}>Panel {i + 1}</div>
-												<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-							<select value={p.mode} onChange={e => {
-								const val = e.target.value as VisualizerMode;
-								setPanels(old => old.map((x, idx) => idx === i ? { ...x, mode: val } : x));
-							}}>
-								{VISUALIZER_MODES.filter(m => m !== 'dancer-fbx').map(m => (
-									<option key={m} value={m}>{LABELS[m]}</option>
+						{/* Rendered files */}
+						<div className="field-label" style={{ marginTop: 4 }}>Rendered Files</div>
+						{renderedFiles.length === 0 ? (
+							<div style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>No rendered files yet</div>
+						) : (
+							<div style={{ maxHeight: 120, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+								{renderedFiles.map(f => (
+									<div key={f.name} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11 }}>
+										<a href={`/rendered/${f.name}`} download style={{ color: 'var(--accent)', textDecoration: 'none' }}>{f.name}</a>
+										<span style={{ color: 'var(--muted)' }}>{(f.size / 1048576).toFixed(1)} MB</span>
+									</div>
 								))}
-							</select>
-							<select value={p.band} onChange={e => {
-								const val = e.target.value as FrequencyBand;
-								setPanels(old => old.map((x, idx) => idx === i ? { ...x, band: val } : x));
-							}}>
-								<option value='full'>Full</option>
-								<option value='bass'>Bass</option>
-								<option value='mid'>Mid</option>
-								<option value='voice'>Voice</option>
-								<option value='treble'>Treble</option>
-							</select>
-													{(['high-graphics-fog','high-graphics-trunk','high-graphics-rings','high-graphics-net','high-graphics-rings-trails','high-graphics-flow-field','high-graphics-hexagon'] as VisualizerMode[]).includes(p.mode) && (
-														<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-															View
-															<select value={p.hgView ?? 'top'} onChange={e => {
-																const val = e.target.value as ('top'|'side');
-																setPanels(old => old.map((x, idx) => idx === i ? { ...x, hgView: val } : x));
-															}}>
-																<option value='top'>Top</option>
-																<option value='side'>Side (centered)</option>
-															</select>
-														</label>
-													)}
-							<input aria-label={`Panel ${i + 1} color`} type='color' value={p.color} onChange={e => {
-								const val = e.target.value;
-								setPanels(old => old.map((x, idx) => idx === i ? { ...x, color: val } : x));
-							}} />
-							<span title="Accent" style={{ width: 16, height: 16, borderRadius: 4, border: '1px solid var(--panelBorder)', background: p.color }}></span>
-						</div>
-						{p.mode !== 'wave' && (
-							<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-								<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-									Low
-									<input type='color' value={p.colors?.low ?? defaultPanelColors.low} onChange={e => {
-										const val = e.target.value;
-										setPanels(old => old.map((x, idx) => idx === i ? { ...x, colors: { ...(x.colors ?? defaultPanelColors), low: val } } : x));
-									}} />
-									<span style={{ width: 12, height: 12, borderRadius: 3, border: '1px solid var(--panelBorder)', background: p.colors?.low ?? defaultPanelColors.low }}></span>
-								</label>
-								<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-									Mid
-									<input type='color' value={p.colors?.mid ?? defaultPanelColors.mid} onChange={e => {
-										const val = e.target.value;
-										setPanels(old => old.map((x, idx) => idx === i ? { ...x, colors: { ...(x.colors ?? defaultPanelColors), mid: val } } : x));
-									}} />
-									<span style={{ width: 12, height: 12, borderRadius: 3, border: '1px solid var(--panelBorder)', background: p.colors?.mid ?? defaultPanelColors.mid }}></span>
-								</label>
-								<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-									High
-									<input type='color' value={p.colors?.high ?? defaultPanelColors.high} onChange={e => {
-										const val = e.target.value;
-										setPanels(old => old.map((x, idx) => idx === i ? { ...x, colors: { ...(x.colors ?? defaultPanelColors), high: val } } : x));
-									}} />
-									<span style={{ width: 12, height: 12, borderRadius: 3, border: '1px solid var(--panelBorder)', background: p.colors?.high ?? defaultPanelColors.high }}></span>
-								</label>
 							</div>
 						)}
 					</div>
-				))}
+				)}
 			</div>
+			)}
 
-			{/* Dancer overlay controls */}
-			<div className="toolbar" style={{ gap: 12 }}>
-				<div style={{ display: 'grid', gap: 8 }}>
-					<div style={{ color: 'var(--muted)' }}>Dancer Overlay</div>
-					<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-						<label><input type='checkbox' checked={showDancer} onChange={e => setShowDancer(e.target.checked)} /> Show</label>
-						<select value={dancerPos} onChange={e => setDancerPos(e.target.value as Position9)}>
-							<option value='lt'>Left Top</option>
-							<option value='mt'>Mid Top</option>
-							<option value='rt'>Right Top</option>
-							<option value='lm'>Left Mid</option>
-							<option value='mm'>Middle</option>
-							<option value='rm'>Right Mid</option>
-							<option value='lb'>Left Bottom</option>
-							<option value='mb'>Mid Bottom</option>
-							<option value='rb'>Right Bottom</option>
-						</select>
-						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-							Size
-							<input type='range' min={20} max={70} value={dancerSize} onChange={e => setDancerSize(parseInt(e.target.value, 10))} />
-							<span style={{ width: 36, textAlign: 'right' }}>{dancerSize}%</span>
-						</label>
-					</div>
-					<div style={{ display: 'grid', gap: 6 }}>
-						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-							Camera Movement
-							<select value={dancerOverlaySources.cameraMode ?? 'static'} onChange={e => setDancerOverlaySources(s => ({ ...s, cameraMode: e.target.value as DancerSources['cameraMode'] }))}>
-								<option value="static">Static</option>
-								<option value="pan">Pan</option>
-								<option value="rotate">Rotate</option>
-							</select>
-						</label>
-						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-							Color Flash
-							<input type='checkbox' checked={!!dancerOverlaySources.colorFlash?.enabled} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), enabled: e.target.checked } }))} />
-							<select value={(dancerOverlaySources.colorFlash && dancerOverlaySources.colorFlash.mode) ? dancerOverlaySources.colorFlash.mode : 'flash'} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), mode: e.target.value as ('flash'|'strobe'|'spot') } }))}>
-								<option value='flash'>Flash</option>
-								<option value='strobe'>Strobe</option>
-								<option value='spot'>Spot Lights</option>
-							</select>
-							<input type='color' value={dancerOverlaySources.colorFlash?.colors?.[0] ?? dancerOverlaySources.colorFlash?.color ?? '#ffffff'} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), colors: [e.target.value, s.colorFlash?.colors?.[1] ?? '#ff0080', s.colorFlash?.colors?.[2] ?? '#00d08a'], color: e.target.value } }))} />
-							<input type='color' value={dancerOverlaySources.colorFlash?.colors?.[1] ?? '#ff0080'} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), colors: [s.colorFlash?.colors?.[0] ?? '#ffffff', e.target.value, s.colorFlash?.colors?.[2] ?? '#00d08a'] } }))} />
-							<input type='color' value={dancerOverlaySources.colorFlash?.colors?.[2] ?? '#00d08a'} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), colors: [s.colorFlash?.colors?.[0] ?? '#ffffff', s.colorFlash?.colors?.[1] ?? '#ff0080', e.target.value] } }))} />
-							<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-								Intensity
-								<input type='range' min={0} max={100} value={Math.round((dancerOverlaySources.colorFlash?.intensity ?? 1) * 100)} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), intensity: Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 100)) } }))} />
-								<span style={{ width: 36, textAlign: 'right' }}>{Math.round((dancerOverlaySources.colorFlash?.intensity ?? 1) * 100)}%</span>
-							</label>
-							<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-								Rays
-								<input type='checkbox' checked={!!dancerOverlaySources.colorFlash?.rays} onChange={e => setDancerOverlaySources(s => ({ ...s, colorFlash: { ...(s.colorFlash ?? {}), rays: e.target.checked } }))} />
-							</label>
-						</label>
-						<div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-							<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-								Camera Elevation
-								<input type='range' min={-20} max={20} value={Math.round((dancerOverlaySources.cameraElevationPct ?? 0) * 100)} onChange={e => setDancerOverlaySources(s => ({ ...s, cameraElevationPct: Math.max(-0.2, Math.min(0.2, parseInt(e.target.value, 10) / 100)) }))} />
-								<span style={{ width: 36, textAlign: 'right' }}>{Math.round((dancerOverlaySources.cameraElevationPct ?? 0) * 100)}%</span>
-							</label>
-							<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-								Camera Tilt
-								<input type='range' min={-15} max={15} value={Math.round(dancerOverlaySources.cameraTiltDeg ?? 0)} onChange={e => setDancerOverlaySources(s => ({ ...s, cameraTiltDeg: Math.max(-15, Math.min(15, parseInt(e.target.value, 10))) }))} />
-								<span style={{ width: 36, textAlign: 'right' }}>{Math.round(dancerOverlaySources.cameraTiltDeg ?? 0)}°</span>
-							</label>
-							<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-								Disco Ball
-								<input type='checkbox' checked={!!dancerOverlaySources.discoBall?.enabled} onChange={e => setDancerOverlaySources(s => ({ ...s, discoBall: { ...(s.discoBall ?? {}), enabled: e.target.checked } }))} />
-							</label>
-						</div>
-						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-							Choose Character
-							<select value={dancerOverlaySources.characterUrl ?? ''} onChange={e => setDancerOverlaySources(s => ({ ...s, characterUrl: e.target.value }))}>
-								<option value="">Select from /public/character</option>
-								{charFiles.map((c) => (
-									<option key={c} value={c}>{c.replace('/character/','')}</option>
-								))}
-							</select>
-						</label>
-						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-							Character FBX
-							<input placeholder="/character/hero.fbx" value={dancerOverlaySources.characterUrl ?? ''} onChange={e => setDancerOverlaySources(s => ({ ...s, characterUrl: e.target.value }))} />
-						</label>
-						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-							Choose Animations
-							<select multiple size={4} value={(dancerOverlaySources.animationUrls ?? [])} onChange={e => {
-								const selected: string[] = Array.from((e.target as HTMLSelectElement).selectedOptions).map(o => o.value);
-								setDancerOverlaySources(s => ({ ...s, animationUrls: selected }));
-							}}>
-								{animFiles.map(a => (
-									<option key={a} value={a}>{a.replace('/dance/','')}</option>
-								))}
-							</select>
-						</label>
-						<label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-							Animations (comma-separated)
-							<input placeholder="/dance/Belly Dance.fbx, /dance/Twist Dance.fbx" value={(dancerOverlaySources.animationUrls ?? []).join(', ')} onChange={e => {
-								const list = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-								setDancerOverlaySources(s => ({ ...s, animationUrls: list }));
-							}} />
-						</label>
-						<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-							<DancerPreview
-								sources={dancerOverlaySources}
-								analyser={analyserNode}
-								width={220}
-								height={124}
-								panelKey={`overlay-preview`}
-							/>
-							<div style={{ color: 'var(--muted)', fontSize: 12 }}>Preview</div>
-						</div>
-					</div>
-				</div>
-			</div>
-
-			<div className="toolbar" style={{ gap: 12 }}>
-				<div style={{ display: 'grid', gap: 8 }}>
-					<div style={{ color: 'var(--muted)' }}>Title</div>
-					<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-						<input placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} />
-						<select value={titlePos} onChange={e => setTitlePos(e.target.value as Position9)}>
-							<option value='lt'>Left Top</option>
-							<option value='mt'>Mid Top</option>
-							<option value='rt'>Right Top</option>
-							<option value='lm'>Left Mid</option>
-							<option value='mm'>Middle</option>
-							<option value='rm'>Right Mid</option>
-							<option value='lb'>Left Bottom</option>
-							<option value='mb'>Mid Bottom</option>
-							<option value='rb'>Right Bottom</option>
-						</select>
-						<input type='color' value={titleColor} onChange={e => setTitleColor(e.target.value)} />
-						<span style={{ width: 16, height: 16, borderRadius: 4, border: '1px solid var(--panelBorder)', background: titleColor }}></span>
-					</div>
-					<div style={{ display: 'flex', gap: 12 }}>
-						<label><input type='checkbox' checked={titleFx.float} onChange={e => setTitleFx(s => ({ ...s, float: e.target.checked }))} /> Float</label>
-						<label><input type='checkbox' checked={titleFx.bounce} onChange={e => setTitleFx(s => ({ ...s, bounce: e.target.checked }))} /> Bounce</label>
-						<label><input type='checkbox' checked={titleFx.pulse} onChange={e => setTitleFx(s => ({ ...s, pulse: e.target.checked }))} /> Pulse</label>
-					</div>
-				</div>
-				<div style={{ display: 'grid', gap: 8 }}>
-					<div style={{ color: 'var(--muted)' }}>Description</div>
-					<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-						<input placeholder="Description" value={desc} onChange={e => setDesc(e.target.value)} />
-						<select value={descPos} onChange={e => setDescPos(e.target.value as Position9)}>
-							<option value='lt'>Left Top</option>
-							<option value='mt'>Mid Top</option>
-							<option value='rt'>Right Top</option>
-							<option value='lm'>Left Mid</option>
-							<option value='mm'>Middle</option>
-							<option value='rm'>Right Mid</option>
-							<option value='lb'>Left Bottom</option>
-							<option value='mb'>Mid Bottom</option>
-							<option value='rb'>Right Bottom</option>
-						</select>
-						<input type='color' value={descColor} onChange={e => setDescColor(e.target.value)} />
-						<span style={{ width: 16, height: 16, borderRadius: 4, border: '1px solid var(--panelBorder)', background: descColor }}></span>
-					</div>
-					<div style={{ display: 'flex', gap: 12 }}>
-						<label><input type='checkbox' checked={descFx.float} onChange={e => setDescFx(s => ({ ...s, float: e.target.checked }))} /> Float</label>
-						<label><input type='checkbox' checked={descFx.bounce} onChange={e => setDescFx(s => ({ ...s, bounce: e.target.checked }))} /> Bounce</label>
-						<label><input type='checkbox' checked={descFx.pulse} onChange={e => setDescFx(s => ({ ...s, pulse: e.target.checked }))} /> Pulse</label>
-					</div>
-				</div>
-				<div style={{ display: 'grid', gap: 8 }}>
-					<div style={{ color: 'var(--muted)' }}>Countdown</div>
-					<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-						<select value={countPos} onChange={e => setCountPos(e.target.value as Position5)}>
-							<option value='lt'>Left Top</option>
-							<option value='ct'>Center Top</option>
-							<option value='rt'>Right Top</option>
-							<option value='bl'>Bottom Left</option>
-							<option value='br'>Bottom Right</option>
-						</select>
-						<input type='color' value={countColor} onChange={e => setCountColor(e.target.value)} />
-						<span style={{ width: 16, height: 16, borderRadius: 4, border: '1px solid var(--panelBorder)', background: countColor }}></span>
-					</div>
-					<div style={{ display: 'flex', gap: 12 }}>
-						<label><input type='checkbox' checked={countFx.float} onChange={e => setCountFx(s => ({ ...s, float: e.target.checked }))} /> Float</label>
-						<label><input type='checkbox' checked={countFx.bounce} onChange={e => setCountFx(s => ({ ...s, bounce: e.target.checked }))} /> Bounce</label>
-						<label><input type='checkbox' checked={countFx.pulse} onChange={e => setCountFx(s => ({ ...s, pulse: e.target.checked }))} /> Pulse</label>
-					</div>
-				</div>
-			</div>
 			</aside>
 
 			{/* Top controlbar (above canvas) */}
@@ -1258,25 +1225,26 @@ export default function App() {
 					{ready && analyserNode && (
 						<>
 								<GridVisualizerCanvas
-								ref={canvasRef}
-								analyser={analyserNode}
-								analysers={analysers}
-								layout={layout}
-								panels={panels}
-								width={effectiveSize.w}
-								height={effectiveSize.h}
-								audio={audioEl}
+									ref={canvasRef}
+									analyser={analyserNode}
+									analysers={analysers}
+									layout={layout}
+									panels={panels}
+									width={previewSize.w}
+									height={previewSize.h}
+									audio={audioEl}
 									backgroundColor={bgMode === 'color' ? bgColor : undefined}
 									backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
 									backgroundFit={bgFit}
 									backgroundOpacity={bgOpacity}
-								instanceKey={'preview'}
-								overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
-								overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
-								overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
-								overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
-								overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
-							/>
+									bgMode={bgMode}
+									instanceKey={'preview'}
+									overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
+									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
+									overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
+									overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
+									overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
+								/>
 							<div style={{ position: 'absolute', left: -9999, top: -9999, width: 1, height: 1, overflow: 'hidden' }}>
 								<GridVisualizerCanvas
 									ref={exportCanvasRef}
@@ -1291,6 +1259,7 @@ export default function App() {
 									backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
 									backgroundFit={bgFit}
 									backgroundOpacity={bgOpacity}
+									bgMode={bgMode}
 									instanceKey={'export'}
 									overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
 									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
