@@ -124,6 +124,7 @@ app.post('/render', upload.single('file'), async (req, res) => {
       aspect = '16:9', res: resolution = '720', fps = '30', codec = 'vp9',
       vBitrate = '8000', aBitrate = '192', format = 'webm', mode, theme, layout, panels,
       character, animations, dancerSize, dancerPos,
+      cameraMode, cameraElevationPct, cameraTiltDeg, cameraSpeed, cameraDistance,
       title, titlePos, titleColor, titleFloat, titleBounce, titlePulse,
       desc, descPos, descColor, descFloat, descBounce, descPulse,
       showCountdown, countPos, countColor, countFloat, countBounce, countPulse,
@@ -194,6 +195,12 @@ app.post('/render', upload.single('file'), async (req, res) => {
     if (animations) url.searchParams.set('animations', String(animations));
     if (dancerSize) url.searchParams.set('dancerSize', String(dancerSize));
     if (dancerPos) url.searchParams.set('dancerPos', String(dancerPos));
+    // Forward camera parameters if present
+    if (cameraMode) url.searchParams.set('cameraMode', String(cameraMode));
+    if (cameraElevationPct !== undefined) url.searchParams.set('cameraElevationPct', String(cameraElevationPct));
+    if (cameraTiltDeg !== undefined) url.searchParams.set('cameraTiltDeg', String(cameraTiltDeg));
+    if (cameraSpeed !== undefined) url.searchParams.set('cameraSpeed', String(cameraSpeed));
+    if (cameraDistance !== undefined) url.searchParams.set('cameraDistance', String(cameraDistance));
     // Text overlays
     if (title) url.searchParams.set('title', String(title));
     if (titlePos) url.searchParams.set('titlePos', String(titlePos));

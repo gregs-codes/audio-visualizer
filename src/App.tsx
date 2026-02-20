@@ -562,7 +562,11 @@ export default function App() {
 	}, [ready, panels, analyserNode, getBandAnalyser]);
 
 	return (
-		<div data-theme={theme} className={`app ${showSettings ? 'settings-open' : ''}`}>
+		<>
+			<div className="viz-glow viz-glow-1" />
+			<div className="viz-glow viz-glow-2" />
+			<div className="viz-glow viz-glow-3" />
+			<div data-theme={theme} className={`app ${showSettings ? 'settings-open' : ''}`}> 
 			<div className="topbar">
 				<div className="brand">Audio Visualizer</div>
 				<div className="spacer" />
@@ -1033,7 +1037,14 @@ export default function App() {
 									if (showDancer && dancerOverlaySources.characterUrl) {
 										fd.append('character', dancerOverlaySources.characterUrl);
 										if (dancerOverlaySources.animationUrls?.length) fd.append('animations', dancerOverlaySources.animationUrls.join(','));
-										fd.append('dancerSize', String(dancerSize)); fd.append('dancerPos', dancerPos);
+										fd.append('dancerSize', String(dancerSize));
+										fd.append('dancerPos', dancerPos);
+										// Send camera parameters if present
+										if (dancerOverlaySources.cameraMode) fd.append('cameraMode', dancerOverlaySources.cameraMode);
+										if (dancerOverlaySources.cameraElevationPct !== undefined) fd.append('cameraElevationPct', String(dancerOverlaySources.cameraElevationPct));
+										if (dancerOverlaySources.cameraTiltDeg !== undefined) fd.append('cameraTiltDeg', String(dancerOverlaySources.cameraTiltDeg));
+										if (dancerOverlaySources.cameraSpeed !== undefined) fd.append('cameraSpeed', String(dancerOverlaySources.cameraSpeed));
+										if (dancerOverlaySources.cameraDistance !== undefined) fd.append('cameraDistance', String(dancerOverlaySources.cameraDistance));
 									}
 									if (title) { fd.append('title', title); fd.append('titlePos', titlePos); fd.append('titleColor', titleColor); if (titleFx.float) fd.append('titleFloat', '1'); if (titleFx.bounce) fd.append('titleBounce', '1'); if (titleFx.pulse) fd.append('titlePulse', '1'); }
 									if (desc) { fd.append('desc', desc); fd.append('descPos', descPos); fd.append('descColor', descColor); if (descFx.float) fd.append('descFloat', '1'); if (descFx.bounce) fd.append('descBounce', '1'); if (descFx.pulse) fd.append('descPulse', '1'); }
@@ -1143,55 +1154,34 @@ export default function App() {
 
 			</aside>
 
-			{/* Top controlbar (above canvas) */}
-			<div className="controlbar controlbar-top" aria-label="Playback Controls" role="group">
-				<div className="left">
-					<button
-						className="icon-btn"
-						aria-label={isPlaying ? 'Pause' : 'Play'}
-						onClick={() => {
-							const a = audioRef.current; if (!a) return;
-							if (a.paused) a.play(); else a.pause();
-						}}
-					>{isPlaying ? '⏸' : '▶︎'}</button>
-					<div className="upload">
-						<button className="icon-btn" aria-label="Upload Audio">＋ Audio</button>
-						<input
-							type='file'
-							accept='audio/*'
-							aria-label='Upload Audio File'
-							onChange={async e => { const f = e.target.files?.[0]; if (f) { setAudioFile(f); const a = await init(f); setAnalyserNode(a); setAudioEl(audioRef.current); setReady(true); } }}
-						/>
-					</div>
-				</div>
-				<div className="right">
+			{/* Modern glassy controls */}
+			<div className="glassy-controls" aria-label="Playback Controls" role="group">
+				<button
+					className="glassy-btn"
+					aria-label={isPlaying ? 'Pause' : 'Play'}
+					style={{ background: 'rgba(20,24,32,0.92)', color: '#e8e8f2', boxShadow: '0 2px 8px #00ffc822', border: '1px solid #222', fontSize: 20 }}
+					onClick={() => {
+						const a = audioRef.current; if (!a) return;
+						if (a.paused) a.play(); else a.pause();
+					}}
+				>{isPlaying ? <span style={{fontWeight:700}}>❚❚</span> : <span style={{fontWeight:700}}>▶</span>}</button>
+				<button className="glassy-btn"
+					aria-label="Upload Audio"
+					style={{ background: 'rgba(20,24,32,0.92)', color: '#e8e8f2', boxShadow: '0 2px 8px #00ffc822', border: '1px solid #222', fontSize: 22, width: 40, height: 40, padding: 0, position: 'relative' }}>
+					<span style={{fontWeight:700}}>＋</span>
 					<input
-						className="timeline"
-						type='range'
-						min={0}
-						max={1000}
-						value={Math.round(progress * 1000)}
-						onChange={e => {
-							const a = audioRef.current; if (!a || a.duration <= 0) return;
-							const frac = Math.max(0, Math.min(1, parseInt(e.target.value, 10) / 1000));
-							a.currentTime = frac * a.duration;
-							setProgress(frac);
-						}}
+						type='file'
+						accept='audio/*'
+						aria-label='Upload Audio File'
+						style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+						onChange={async e => { const f = e.target.files?.[0]; if (f) { setAudioFile(f); const a = await init(f); setAnalyserNode(a); setAudioEl(audioRef.current); setReady(true); } }}
 					/>
-					<div className="volume" aria-label="Volume">
-						<span>Vol</span>
-						<input
-							type='range'
-							min={0}
-							max={100}
-							step={1}
-							value={volume}
-							onChange={e => {
-								const v = parseInt(e.target.value, 10); setVolume(v);
-								const a = audioRef.current; if (a) a.volume = Math.max(0, Math.min(1, v / 100));
-							}}
-						/>
-					</div>
+				</button>
+				<div className="glassy-seek" style={{ flex: 1, position: 'relative' }}>
+					<div className="glassy-seek-fill" style={{ width: `${progress * 100}%` }} />
+				</div>
+				<div className="glassy-vol" style={{ position: 'relative' }}>
+					<div className="glassy-vol-fill" style={{ width: `${volume}%` }} />
 				</div>
 			</div>
 
@@ -1221,30 +1211,32 @@ export default function App() {
 				</div>
 			)}
 
-				<div className="canvas-wrap overlay-controls" ref={wrapRef}>
+				<div className="glassy-panel overlay-controls" ref={wrapRef} style={{ position: 'relative' }}>
+					{/* Only show overlays in the correct position, no duplicate title/timer. */}
 					{ready && analyserNode && (
 						<>
-								<GridVisualizerCanvas
-									ref={canvasRef}
-									analyser={analyserNode}
-									analysers={analysers}
-									layout={layout}
-									panels={panels}
-									width={previewSize.w}
-									height={previewSize.h}
-									audio={audioEl}
-									backgroundColor={bgMode === 'color' ? bgColor : undefined}
-									backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
-									backgroundFit={bgFit}
-									backgroundOpacity={bgOpacity}
-									bgMode={bgMode}
-									instanceKey={'preview'}
-									overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
-									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
-									overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
-									overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
-									overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
-								/>
+							<GridVisualizerCanvas
+								ref={canvasRef}
+								analyser={analyserNode}
+								analysers={analysers}
+								layout={layout}
+								panels={panels}
+								width={previewSize.w}
+								height={previewSize.h}
+								audio={audioEl}
+								backgroundColor={bgMode === 'color' ? bgColor : undefined}
+								backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
+								backgroundFit={bgFit}
+								backgroundOpacity={bgOpacity}
+								bgMode={bgMode}
+								instanceKey={'preview'}
+								overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
+								overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
+								overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
+								overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
+								overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
+								exportPhase={exportPhase}
+							/>
 							<div style={{ position: 'absolute', left: -9999, top: -9999, width: 1, height: 1, overflow: 'hidden' }}>
 								<GridVisualizerCanvas
 									ref={exportCanvasRef}
@@ -1261,7 +1253,7 @@ export default function App() {
 									backgroundOpacity={bgOpacity}
 									bgMode={bgMode}
 									instanceKey={'export'}
-									overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
+									  overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
 									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
 									overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
 									overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
@@ -1269,20 +1261,18 @@ export default function App() {
 									exportPhase={exportPhase}
 								/>
 							</div>
-
-
-								{/* Fullscreen toggle */}
-								<button
-									className="icon-btn fullscreen"
-									aria-label="Toggle Fullscreen"
-									onClick={() => {
-										const el = wrapRef.current; if (!el) return;
-										if (!document.fullscreenElement) el.requestFullscreen?.(); else document.exitFullscreen?.();
-									}}
-								>⤢</button>
+							{/* Fullscreen toggle */}
+							<button
+								className="icon-btn fullscreen"
+								aria-label="Toggle Fullscreen"
+								onClick={() => {
+									const el = wrapRef.current; if (!el) return;
+									if (!document.fullscreenElement) el.requestFullscreen?.(); else document.exitFullscreen?.();
+								}}
+							>⤢</button>
 						</>
 					)}
 				</div>
 		</div>
-	);
+	</>);
 }
