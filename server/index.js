@@ -111,10 +111,13 @@ app.get('/rendered/list', async (req, res) => {
   }
 });
 
-// POST /render accepts multipart form: file, aspect, res, fps, codec, vBitrate, aBitrate
-app.post('/render', upload.single('file'), async (req, res) => {
+// POST /render accepts multipart form: file (audio), bgImage (optional image), and other params
+app.post('/render', upload.fields([
+  { name: 'file', maxCount: 1 },
+  { name: 'bgImage', maxCount: 1 }
+]), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'file is required' });
+    if (!req.files || !req.files['file']) return res.status(400).json({ error: 'file is required' });
 
     // Kill any previous render before starting a new one
     await killActiveBrowser();
@@ -128,7 +131,7 @@ app.post('/render', upload.single('file'), async (req, res) => {
       title, titlePos, titleColor, titleFloat, titleBounce, titlePulse,
       desc, descPos, descColor, descFloat, descBounce, descPulse,
       showCountdown, countPos, countColor, countFloat, countBounce, countPulse,
-      bgMode, bgColor, bgImageUrl, bgFit, bgOpacity,
+      bgMode, bgColor, bgImageUrl: bgImageUrlBody, bgFit, bgOpacity,
     } = req.body || {};
 
     // Launch headless browser with generous protocol timeout to avoid premature failures
@@ -170,12 +173,26 @@ app.post('/render', upload.single('file'), async (req, res) => {
     });
 
     // Build URL with autoExport and params; write upload to a short URL to avoid huge query strings
-    const audioMime = req.file.mimetype || 'audio/mpeg';
+    const audioFile = req.files['file'][0];
+    const audioMime = audioFile.mimetype || 'audio/mpeg';
     const ext = (audioMime.split('/')[1] || 'bin').split(';')[0];
     const fileId = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
     await fs.mkdir(TMP_DIR, { recursive: true });
     const filePath = path.join(TMP_DIR, fileId);
-    await fs.writeFile(filePath, req.file.buffer);
+    await fs.writeFile(filePath, audioFile.buffer);
+
+    // Handle optional background image upload
+    let bgImageUrl = bgImageUrlBody;
+    if (req.files['bgImage'] && req.files['bgImage'][0]) {
+      const imgFile = req.files['bgImage'][0];
+      const imgExt = (imgFile.mimetype.split('/')[1] || 'png').split(';')[0];
+      const imgId = `${Date.now()}_${Math.random().toString(36).slice(2)}.${imgExt}`;
+      const imgPath = path.join(TMP_DIR, imgId);
+      await fs.writeFile(imgPath, imgFile.buffer);
+      const serverBase = process.env.SERVER_PUBLIC_URL || `http://localhost:${PORT}`;
+      bgImageUrl = `${serverBase}/uploads/${imgId}`;
+    }
+
     const base = process.env.APP_URL || 'http://localhost:5173/';
     const url = new URL(base);
     url.searchParams.set('autoExport', '1');

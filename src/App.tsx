@@ -1,19 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAudioAnalyzer } from './audio/useAudioAnalyzer';
 import { GridVisualizerCanvas } from './visualizer/GridVisualizerCanvas';
+import VisualizerCanvasWithTriangles from './visualizer/VisualizerCanvasWithTriangles';
 import type { VisualizerMode, FrequencyBand } from './visualizer/visualizerModes';
 import type { DancerSources } from './visualizer/dancer/DancerEngine';
 import { DancerPreview } from './visualizer/dancer/DancerPreview';
 import { ANIMATION_FILES } from './visualizer/dancer/animations';
 import { CHARACTER_FILES } from './visualizer/dancer/characters';
 import { VISUALIZER_MODES, LABELS } from './visualizer/visualizers';
+
+const CUSTOM_MODES = [
+	{ key: 'triangles-bars', label: 'Triangles + Bars' }
+];
 import type { LayoutMode } from './visualizer/GridVisualizerCanvas';
 import { useCanvasRecorder } from './recorder/useCanvasRecorder';
 
 export default function App() {
 	const { audioRef, init, getAudioStream, getBandAnalyser, getStereoAnalysers, setPlaybackMuted } = useAudioAnalyzer();
 	const [showSettings, setShowSettings] = useState(true);
-		const [mode, setMode] = useState<VisualizerMode>('vertical-bars');
+		const [mode, setMode] = useState<VisualizerMode | 'triangles-bars'>('vertical-bars');
 	const [theme, setTheme] = useState('dark');
 	const [color, setColor] = useState('#7aa2ff');
 	// Background controls
@@ -708,11 +713,11 @@ export default function App() {
 								<div className="field-label">Panel {i + 1}</div>
 								<div className="field-row">
 									<select value={p.mode} onChange={e => {
-										const val = e.target.value as VisualizerMode;
+										const val = e.target.value as VisualizerMode | 'triangles-bars';
 										setPanels(old => old.map((x, idx) => idx === i ? { ...x, mode: val } : x));
 									}}>
-										{VISUALIZER_MODES.filter(m => m !== 'dancer-fbx').map(m => (
-											<option key={m} value={m}>{LABELS[m]}</option>
+										{[...VISUALIZER_MODES.filter(m => m !== 'dancer-fbx').map(m => ({ key: m, label: LABELS[m] })), ...CUSTOM_MODES].map(m => (
+											<option key={m.key} value={m.key}>{m.label}</option>
 										))}
 									</select>
 									<select value={p.band} onChange={e => {
@@ -1215,28 +1220,37 @@ export default function App() {
 					{/* Only show overlays in the correct position, no duplicate title/timer. */}
 					{ready && analyserNode && (
 						<>
-							<GridVisualizerCanvas
-								ref={canvasRef}
-								analyser={analyserNode}
-								analysers={analysers}
-								layout={layout}
-								panels={panels}
-								width={previewSize.w}
-								height={previewSize.h}
-								audio={audioEl}
-								backgroundColor={bgMode === 'color' ? bgColor : undefined}
-								backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
-								backgroundFit={bgFit}
-								backgroundOpacity={bgOpacity}
-								bgMode={bgMode}
-								instanceKey={'preview'}
-								overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
-								overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
-								overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
-								overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
-								overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
-								exportPhase={exportPhase}
-							/>
+							{panels[0]?.mode === 'triangles-bars' ? (
+								<VisualizerCanvasWithTriangles
+									analyser={analyserNode}
+									backgroundUrl={bgMode === 'image' ? bgImageUrl : undefined}
+									backgroundType={bgMode === 'image' ? 'image' : undefined}
+									backgroundFit={bgFit}
+								/>
+							) : (
+								<GridVisualizerCanvas
+									ref={canvasRef}
+									analyser={analyserNode}
+									analysers={analysers}
+									layout={layout}
+									panels={panels}
+									width={previewSize.w}
+									height={previewSize.h}
+									audio={audioEl}
+									backgroundColor={bgMode === 'color' ? bgColor : undefined}
+									backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
+									backgroundFit={bgFit}
+									backgroundOpacity={bgOpacity}
+									bgMode={bgMode}
+									instanceKey={'preview'}
+									overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
+									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
+									overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
+									overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
+									overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
+									exportPhase={exportPhase}
+								/>
+							)}
 							<div style={{ position: 'absolute', left: -9999, top: -9999, width: 1, height: 1, overflow: 'hidden' }}>
 								<GridVisualizerCanvas
 									ref={exportCanvasRef}
@@ -1253,7 +1267,7 @@ export default function App() {
 									backgroundOpacity={bgOpacity}
 									bgMode={bgMode}
 									instanceKey={'export'}
-									  overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
+									overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
 									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
 									overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
 									overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
