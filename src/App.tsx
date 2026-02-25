@@ -19,6 +19,8 @@ export default function App() {
 	const { audioRef, init, getAudioStream, getBandAnalyser, getStereoAnalysers, setPlaybackMuted } = useAudioAnalyzer();
 	const [showSettings, setShowSettings] = useState(true);
 		const [mode, setMode] = useState<VisualizerMode | 'triangles-bars'>('vertical-bars');
+// Add state for server URL
+const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [theme, setTheme] = useState('dark');
 	const [color, setColor] = useState('#7aa2ff');
 	// Background controls
@@ -1081,7 +1083,14 @@ export default function App() {
 				</div>
 				{openSections.server && (
 					<div className="section-body">
-						<div className="field-row" style={{ gap: 8 }}>
+						   <div className="field-row" style={{ flexDirection: 'column', gap: 8, alignItems: 'stretch' }}>
+							   <label style={{ fontWeight: 500, fontSize: 13, color: '#7aa2ff', marginBottom: 2 }}>Server Render URL</label>
+							   <input
+								   type="text"
+								   value={serverUrl}
+								   onChange={e => setServerUrl(e.target.value)}
+								   style={{ width: '100%', fontSize: 13, padding: 4, borderRadius: 4, border: '1px solid #333', background: '#181a20', color: '#e6e6eb', marginBottom: 6 }}
+							   />
 							<button disabled={serverRendering || !audioFile} onClick={async () => {
 								if (!audioFile) return;
 								setServerRendering(true); setServerProgress(0); setServerError(''); setServerStatus('uploading');
@@ -1113,7 +1122,7 @@ export default function App() {
 									if (bgMode === 'image' && bgImageUrl) fd.append('bgImageUrl', bgImageUrl);
 									fd.append('bgFit', bgFit); fd.append('bgOpacity', String(bgOpacity));
 
-									const resp = await fetch('http://localhost:9090/render', { method: 'POST', body: fd });
+									const resp = await fetch(serverUrl, { method: 'POST', body: fd });
 									const reader = resp.body?.getReader();
 									if (!reader) throw new Error('No response stream');
 									const decoder = new TextDecoder();
