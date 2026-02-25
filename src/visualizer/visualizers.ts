@@ -1,0 +1,1067 @@
+import { renderDancer, type DancerSources } from './dancer/DancerEngine';
+// This module declares all visualizer modes and 2D renderers.
+// WebGL HD modes render offscreen in their own engines; we include placeholders here.
+// `visualizerModes.ts` re-exports the union type for App/UI use.
+
+export type RenderContext = {
+  ctx: CanvasRenderingContext2D;
+  x: number; y: number; w: number; h: number;
+  panel: { color: string; colors?: { low: string; mid: string; high: string } };
+  freq: Uint8Array;
+  time: Uint8Array;
+  energy: number; // 0..1
+  now: number; // seconds
+  panelKey: string; // unique key per panel region for persistent state
+};
+
+// List of modes (kebab-case keys)
+export const VISUALIZER_MODES = [
+  // Put the dancer mode at the top of the dropdown
+  'dancer-fbx',
+  // Core and variants
+  'high-graphics',
+  'high-graphics-nebula',
+  'high-graphics-tunnel',
+  'high-graphics-curl',
+  'high-graphics-spiral',
+  'high-graphics-fog',
+  'high-graphics-cells',
+  'high-graphics-trunk',
+  'high-graphics-rings',
+  'high-graphics-kaleidoscope',
+  'high-graphics-flow-field',
+  'high-graphics-hexagon',
+  'high-graphics-hex-paths',
+  'high-graphics-net',
+  'triangular-net',
+  'vertical-bars',
+  'horizontal-bars',
+  'mirrored-bars',
+  'waveform',
+  'thick-wave',
+  'dual-wave',
+  'circular-bars',
+  'rotating-circular-bars',
+  'radial-waveform',
+  'pulse-circle',
+  'concentric-rings',
+  'expanding-wave-rings',
+  // Particles and fields (baseline reactive implementations)
+  'particle-field',
+  'particle-burst',
+  'floating-dots',
+  'bubble',
+  'neon-glow-wave',
+  'audio-spikes',
+  'peak-dots',
+  'frequency-heatmap',
+  'gradient-spectrum',
+  'spiral-spectrum',
+  'polygon-pulse',
+  'rotating-polygon',
+  'starburst',
+  'line-mesh',
+  'high-graphics-rings-trails',
+  'particle-mesh',
+  'orbital-particles',
+  'breathing-blob',
+  'soft-plasma',
+  'noise-flow',
+  'light-rays',
+  'equalizer-arc',
+  'radar-sweep',
+  'audio-sun',
+  'audio-moon',
+  'tunnel',
+  'vortex',
+  'ripple-field',
+  'echo-trails',
+  'comet-tails',
+  'firefly-swarm',
+  'snowfall-react',
+  'rain-react',
+  'smoke-fog-pulse',
+  'cloud-drift',
+  'ocean-wave',
+  'horizon-pulse',
+  'audio-landscape',
+  'skyline-bars',
+  'minimal-dot-pulse',
+  // Synonyms for backward compatibility
+  'bars',
+  'wave',
+  'circle',
+] as const;
+
+export type VisualizerMode = typeof VISUALIZER_MODES[number];
+
+export const LABELS: Record<VisualizerMode, string> = {
+  'high-graphics': 'High Graphics (WebGL)',
+  'high-graphics-nebula': 'HG: Nebula (WebGL)',
+  'high-graphics-tunnel': 'HG: Tunnel (WebGL)',
+  'high-graphics-curl': 'HG: Curl Particles (WebGL)',
+  'high-graphics-spiral': 'HG: Spiral Wave (WebGL)',
+  'high-graphics-fog': 'HG: Fog (WebGL)',
+  'high-graphics-cells': 'HG: Cells (WebGL)',
+  'high-graphics-trunk': 'HG: Trunk (WebGL)',
+  'high-graphics-rings': 'HG: Rings (WebGL)',
+  'high-graphics-rings-trails': 'HG: Rings Trails (WebGL)',
+  'high-graphics-kaleidoscope': 'HG: Kaleidoscope (WebGL)',
+  'high-graphics-flow-field': 'HG: Flow Field (WebGL)',
+  'high-graphics-hexagon': 'HG: Hexagon (WebGL)',
+  'high-graphics-hex-paths': 'HG: Hex Paths (WebGL)',
+  'high-graphics-net': 'HG: Net (WebGL)',
+  'triangular-net': 'Triangular Net',
+  'vertical-bars': 'Vertical Bars',
+  'horizontal-bars': 'Horizontal Bars',
+  'mirrored-bars': 'Mirrored Bars (center out)',
+  'waveform': 'Waveform (oscilloscope)',
+  'thick-wave': 'Thick Wave (filled waveform)',
+  'dual-wave': 'Dual Wave (left/right)',
+  'circular-bars': 'Circular Bars',
+  'rotating-circular-bars': 'Rotating Circular Bars',
+  'radial-waveform': 'Radial Waveform',
+  'pulse-circle': 'Pulse Circle (bass-driven)',
+  'concentric-rings': 'Concentric Rings',
+  'expanding-wave-rings': 'Expanding Wave Rings',
+  'particle-field': 'Particle Field',
+  'particle-burst': 'Particle Burst (beat-reactive)',
+  'floating-dots': 'Floating Dots',
+  'bubble': 'Bubble Visualizer',
+  'neon-glow-wave': 'Neon Glow Wave',
+  'audio-spikes': 'Audio Spikes',
+  'peak-dots': 'Peak Dots',
+  'frequency-heatmap': 'Frequency Heatmap',
+  'gradient-spectrum': 'Gradient Spectrum',
+  'spiral-spectrum': 'Spiral Spectrum',
+  'polygon-pulse': 'Polygon Pulse',
+  'rotating-polygon': 'Rotating Polygon',
+  'starburst': 'Starburst',
+  'line-mesh': 'Line Mesh',
+  'particle-mesh': 'Particle Mesh',
+  'orbital-particles': 'Orbital Particles',
+  'breathing-blob': 'Breathing Blob',
+  'soft-plasma': 'Soft Plasma',
+  'noise-flow': 'Noise Flow',
+  'light-rays': 'Light Rays',
+  'equalizer-arc': 'Equalizer Arc',
+  'radar-sweep': 'Radar Sweep',
+  'audio-sun': 'Audio Sun',
+  'audio-moon': 'Audio Moon',
+  'tunnel': 'Tunnel Effect',
+  'vortex': 'Vortex',
+  'ripple-field': 'Ripple Field',
+  'echo-trails': 'Echo Trails',
+  'comet-tails': 'Comet Tails',
+  'firefly-swarm': 'Firefly Swarm',
+  'snowfall-react': 'Snowfall React',
+  'rain-react': 'Rain React',
+  'smoke-fog-pulse': 'Smoke / Fog Pulse',
+  'cloud-drift': 'Cloud Drift',
+  'ocean-wave': 'Ocean Wave',
+  'horizon-pulse': 'Horizon Pulse',
+  'audio-landscape': 'Audio Landscape',
+  'skyline-bars': 'Skyline Bars',
+  'minimal-dot-pulse': 'Minimal Dot Pulse',
+  'dancer-fbx': 'Dancer (FBX / Three.js)',
+  // Synonyms
+  'bars': 'Vertical Bars',
+  'wave': 'Waveform',
+  'circle': 'Circular Bars',
+};
+
+// Helpers: pick a color from per-band mapping or fallback to panel accent
+const pickColor = (ratio: number, colors: RenderContext['panel']['colors'], fallback: string) => {
+  if (colors) {
+    if (ratio < 1/3) return colors.low;
+    if (ratio < 2/3) return colors.mid;
+    return colors.high;
+  }
+  return fallback;
+};
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+// Core 2D canvas renderers (lightweight, responsive)
+const verticalBars = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq } = r;
+  const bars = Math.max(32, Math.floor(w / 20));
+  const barW = w / bars;
+  for (let i = 0; i < bars; i++) {
+    const idx = Math.floor((i / bars) * freq.length);
+    const v = freq[idx] / 255;
+    const ratio = idx / freq.length;
+    ctx.fillStyle = pickColor(ratio, panel.colors, panel.color);
+    ctx.fillRect(x + i * barW, y + h - v * h, barW - 2, v * h);
+  }
+};
+
+const horizontalBars = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq } = r;
+  const bars = Math.max(24, Math.floor(h / 12));
+  const barH = h / bars;
+  for (let i = 0; i < bars; i++) {
+    const idx = Math.floor((i / bars) * freq.length);
+    const v = freq[idx] / 255;
+    const ratio = idx / freq.length;
+    ctx.fillStyle = pickColor(ratio, panel.colors, panel.color);
+    ctx.fillRect(x, y + (bars - 1 - i) * barH, v * w, barH - 2);
+  }
+};
+
+const mirroredBars = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq } = r;
+  const bars = Math.max(32, Math.floor(w / 20));
+  const barW = w / bars;
+  const midY = y + h / 2;
+  for (let i = 0; i < bars; i++) {
+    const idx = Math.floor((i / bars) * freq.length);
+    const v = freq[idx] / 255;
+    const ratio = idx / freq.length;
+    const barH = v * (h / 2);
+    ctx.fillStyle = pickColor(ratio, panel.colors, panel.color);
+    // up
+    ctx.fillRect(x + i * barW, midY - barH, barW - 2, barH);
+    // down
+    ctx.fillRect(x + i * barW, midY, barW - 2, barH);
+  }
+};
+
+const waveform = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, time } = r;
+  ctx.strokeStyle = panel.color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < time.length; i++) {
+    const v = time[i] / 255;
+    const px = x + (i / time.length) * w;
+    const py = y + (1 - v) * h;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+};
+
+const thickWave = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, time } = r;
+  ctx.fillStyle = panel.color;
+  ctx.globalAlpha = 0.7;
+  ctx.beginPath();
+  ctx.moveTo(x, y + h);
+  for (let i = 0; i < time.length; i++) {
+    const v = time[i] / 255;
+    const px = x + (i / time.length) * w;
+    const py = y + (1 - v) * h;
+    ctx.lineTo(px, py);
+  }
+  ctx.lineTo(x + w, y + h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = 1;
+};
+
+const dualWave = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, time } = r;
+  const half = Math.floor(time.length / 2);
+  ctx.strokeStyle = panel.color;
+  ctx.lineWidth = 2;
+  // top
+  ctx.beginPath();
+  for (let i = 0; i < half; i++) {
+    const v = time[i] / 255;
+    const px = x + (i / half) * w;
+    const py = y + h * 0.25 * (1 - v);
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  // bottom
+  ctx.beginPath();
+  for (let i = 0; i < half; i++) {
+    const v = time[half + i] / 255;
+    const px = x + (i / half) * w;
+    const py = y + h * 0.75 * (1 - v);
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+};
+
+const circularBars = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq } = r;
+  const cx = x + w / 2; const cy = y + h / 2; const radius = Math.min(w, h) / 4;
+  const spokes = 96;
+  for (let i = 0; i < spokes; i++) {
+    const t = (i / spokes) * 2 * Math.PI;
+    const idx = Math.floor((i / spokes) * freq.length);
+    const v = (freq[idx] / 255) * (Math.min(w, h) / 4);
+    const ratio = idx / freq.length;
+    ctx.strokeStyle = pickColor(ratio, panel.colors, panel.color);
+    ctx.lineWidth = 2;
+    const x1 = cx + Math.cos(t) * radius;
+    const y1 = cy + Math.sin(t) * radius;
+    const x2 = cx + Math.cos(t) * (radius + v);
+    const y2 = cy + Math.sin(t) * (radius + v);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+};
+
+const rotatingCircularBars = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, now } = r;
+  const cx = x + w / 2; const cy = y + h / 2; const radius = Math.min(w, h) / 4;
+  const spokes = 96;
+  const offset = now * 0.8; // rotation speed
+  for (let i = 0; i < spokes; i++) {
+    const t = ((i / spokes) * 2 * Math.PI) + offset;
+    const idx = Math.floor((i / spokes) * freq.length);
+    const v = (freq[idx] / 255) * (Math.min(w, h) / 4);
+    const ratio = idx / freq.length;
+    ctx.strokeStyle = pickColor(ratio, panel.colors, panel.color);
+    ctx.lineWidth = 2;
+    const x1 = cx + Math.cos(t) * radius;
+    const y1 = cy + Math.sin(t) * radius;
+    const x2 = cx + Math.cos(t) * (radius + v);
+    const y2 = cy + Math.sin(t) * (radius + v);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+};
+
+const radialWaveform = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, time } = r;
+  const cx = x + w / 2; const cy = y + h / 2; const baseR = Math.min(w, h) / 4;
+  ctx.strokeStyle = panel.color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < time.length; i++) {
+    const v = time[i] / 255;
+    const a = (i / time.length) * Math.PI * 2;
+    const r2 = baseR + (v - 0.5) * baseR * 0.5;
+    const px = cx + Math.cos(a) * r2;
+    const py = cy + Math.sin(a) * r2;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.stroke();
+};
+
+const pulseCircle = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const cx = x + w / 2; const cy = y + h / 2;
+  const baseR = Math.min(w, h) / 6;
+  const lowBins = Math.floor(freq.length / 3);
+  let lowEnergy = 0;
+  for (let i = 0; i < lowBins; i++) lowEnergy += freq[i];
+  lowEnergy = lowEnergy / (255 * Math.max(1, lowBins));
+  const R = baseR * (1 + lowEnergy * 1.2 + energy * 0.3);
+  ctx.strokeStyle = panel.color;
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.stroke();
+};
+
+const concentricRings = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq } = r;
+  const cx = x + w / 2; const cy = y + h / 2;
+  const rings = 5;
+  for (let i = 0; i < rings; i++) {
+    const idx = Math.floor((i / rings) * freq.length);
+    const v = freq[idx] / 255;
+    const R = (Math.min(w, h) / 8) * (i + 1) * (1 + v * 0.5);
+    ctx.strokeStyle = pickColor(i / rings, panel.colors, panel.color);
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+  }
+};
+
+const expandingWaveRings = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, time, now } = r;
+  const cx = x + w / 2; const cy = y + h / 2;
+  const rings = 3;
+  for (let k = 0; k < rings; k++) {
+    const phase = (now * 0.6 + k * 0.8) % 1;
+    ctx.beginPath();
+    for (let i = 0; i < time.length; i++) {
+      const v = time[i] / 255;
+      const a = (i / time.length) * Math.PI * 2;
+      const R = (Math.min(w, h) / 6) + phase * (Math.min(w, h) / 6) + (v - 0.5) * 16;
+      const px = cx + Math.cos(a) * R;
+      const py = cy + Math.sin(a) * R;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = panel.color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+};
+
+// Baseline reactive implementations for the rest (simple but responsive)
+const simpleGradientSpectrum = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq } = r;
+  const bars = Math.max(48, Math.floor(w / 10));
+  const barW = w / bars;
+  for (let i = 0; i < bars; i++) {
+    const idx = Math.floor((i / bars) * freq.length);
+    const v = freq[idx] / 255;
+    const ratio = idx / freq.length;
+    ctx.fillStyle = pickColor(ratio, panel.colors, panel.color);
+    ctx.fillRect(x + i * barW, y + h - v * h, barW - 1, v * h);
+  }
+};
+
+const neonGlowWave = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, time } = r;
+  // Downsample to avoid subpixel-dense segments whose glow merges into a thick band
+  const steps = Math.min(time.length, Math.max(128, Math.floor(w)));
+  ctx.save();
+  ctx.shadowColor = panel.color;
+  ctx.shadowBlur = 14;
+  ctx.strokeStyle = panel.color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < steps; i++) {
+    const srcIdx = Math.floor((i / steps) * time.length);
+    const v = time[srcIdx] / 255;
+    const px = x + (i / steps) * w;
+    const py = y + (1 - v) * h;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  ctx.restore();
+};
+
+const frequencyHeatmap = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq } = r;
+  const cols = Math.max(64, Math.floor(w / 8));
+  const colW = w / cols;
+  for (let i = 0; i < cols; i++) {
+    const idx = Math.floor((i / cols) * freq.length);
+    const v = freq[idx] / 255;
+    const ratio = idx / freq.length;
+    const color = pickColor(ratio, panel.colors, panel.color);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = clamp(0.3 + v * 0.7, 0.3, 1);
+    ctx.fillRect(x + i * colW, y, colW, h);
+  }
+  ctx.globalAlpha = 1;
+};
+
+const starburst = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq } = r;
+  const cx = x + w / 2; const cy = y + h / 2;
+  const rays = 64;
+  for (let i = 0; i < rays; i++) {
+    const idx = Math.floor((i / rays) * freq.length);
+    const v = freq[idx] / 255;
+    const a = (i / rays) * Math.PI * 2;
+    const len = (Math.min(w, h) / 3) * v;
+    ctx.strokeStyle = pickColor(idx / freq.length, panel.colors, panel.color);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+    ctx.stroke();
+  }
+};
+
+const rippleField = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, energy, now } = r;
+  const cx = x + w / 2; const cy = y + h / 2;
+  const rings = 6;
+  for (let i = 0; i < rings; i++) {
+    const phase = (now * 0.7 + i * 0.2) % 1;
+    const R = (Math.min(w, h) / 12) * (i + 1) * (1 + energy * 0.5) + phase * 8;
+    ctx.strokeStyle = panel.color;
+    ctx.globalAlpha = clamp(0.2 + energy, 0.2, 1);
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+};
+
+const skylineBars = verticalBars;
+const minimalDotPulse = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, energy } = r;
+  const cx = x + w / 2; const cy = y + h / 2;
+  const R = Math.min(w, h) / 24;
+  ctx.fillStyle = panel.color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R * (1 + energy * 1.5), 0, Math.PI * 2);
+  ctx.fill();
+};
+
+// Triangular Net (inspired by equilateral triangular lattice connection) — beat reactive
+const triangularNet = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy, now } = r;
+  // Beat detection via low-frequency energy delta (simple proxy)
+  const key = `${r.panelKey}:tri-net`;
+  const state = getState<{ prevLow: number }>(key, () => ({ prevLow: 0 }));
+  const lowBins = Math.floor(freq.length / 4);
+  let lowEnergy = 0; for (let i = 0; i < lowBins; i++) lowEnergy += freq[i];
+  lowEnergy = lowEnergy / (255 * Math.max(1, lowBins));
+  const beat = lowEnergy - state.prevLow > 0.06;
+  state.prevLow = state.prevLow * 0.85 + lowEnergy * 0.15;
+
+  // Pseudo-random generator (Mersenne-like simplified)
+  const MT = new Uint32Array(624);
+  let idx = 0;
+  const setSeed = (seed: number) => { MT[0] = seed >>> 0; for (let i = 1; i < 624; i++) { MT[i] = (1812433253 * (MT[i-1] ^ (MT[i-1] >>> 30)) + i) >>> 0; } idx = 0; };
+  const generateNumbers = () => { for (let i = 0; i < 624; i++) { const y32 = (MT[i] & 0x80000000) + (MT[(i + 1) % 624] & 0x7fffffff); MT[i] = MT[(i + 397) % 624] ^ (y32 >>> 1); if ((y32 & 1) !== 0) MT[i] = MT[i] ^ 0x9908B0DF; } };
+  const extractNumber = () => { if (idx === 0) generateNumbers(); let y32 = MT[idx]; y32 ^= (y32 >>> 11); y32 ^= (y32 << 7) & 0x9D2C5680; y32 ^= (y32 << 15) & 0xEFC60000; y32 ^= (y32 >>> 18); idx = (idx + 1) % 624; return y32 >>> 0; };
+  const rand = () => (extractNumber() / 0x7FFFFFFF);
+  setSeed(3);
+
+  // Generate vertices cloud (audio-reactive spawn & offset)
+  const vertices: Array<[number, number]> = [];
+  const count = 12 + Math.floor(energy * 8);
+  const spawnBase = 20 + Math.floor(lowEnergy * 52);
+  const offset = Math.max(36, Math.min(Math.max(w, h) / 3, 52 + lowEnergy * 110));
+  const rotScale = (0.0006 + energy * 0.0010) * (0.35 + 0.65 * (beat ? 1.0 : 0.0));
+  for (let i = 0; i < count; i++) {
+    const rlen = (rand() - 0.5) * Math.max(w, h) / 2;
+    const a0 = ((i % 2 === 0 ? 1 : -1) * now * rotScale * 1000) + rand() * Math.PI * 2;
+    const v0: [number, number] = [Math.cos(a0) * rlen, Math.sin(a0) * rlen];
+    vertices.unshift(v0);
+    const spawn = Math.floor(spawnBase * (0.5 + rand()));
+    for (let j = 0; j < spawn; j++) {
+      const r2 = rand() * offset;
+      const a2 = ((j % 2 === 0 ? 1 : -1) * now * rotScale * 2000) + rand() * Math.PI * 2;
+      const o = vertices[0];
+      const v: [number, number] = [o[0] + Math.cos(a2) * r2, o[1] + Math.sin(a2 * 2) * r2];
+      vertices.push(v);
+    }
+  }
+
+  // Clip to panel region and draw centered
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  ctx.translate(x + w / 2, y + h / 2);
+  ctx.strokeStyle = panel.color;
+  ctx.lineWidth = 1;
+  const maxScale = Math.max(w, h) / 8;
+  // Layered lattice scales for depth; alpha reacts to beat/energy
+  for (let s = 8; s <= maxScale; s *= 2) {
+    ctx.globalAlpha = ((1 - s / maxScale) * 0.12) * (0.7 + energy * 0.6 + (beat ? 0.35 : 0));
+    // Render yolo at this scale
+    // Measures of an equilateral triangle lattice
+    const sides = 3;
+    let l = 2 * Math.sin(Math.PI / sides); // base side length
+    let a = l / (2 * Math.tan(Math.PI / sides)); // apothem
+    let hv = (1 + a);
+    l *= s; hv *= s;
+    const mx = 2 * Math.ceil(w / l);
+    const my = Math.ceil(h / hv);
+    const fills: number[][] = [];
+    ctx.beginPath();
+    for (let vi = 0; vi < vertices.length; vi++) {
+      const v = vertices[vi];
+      const cell_x = Math.round(((v[0] - 0) / Math.max(1, w - 0)) * mx);
+      const cell_y = Math.round(((v[1] - 0) / Math.max(1, h - 0)) * my);
+      let md = Number.POSITIVE_INFINITY, d = 0, x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+      const ps: number[] = [];
+      for (let i2 = cell_x - 2; i2 < cell_x + 2; i2++) {
+        for (let j2 = cell_y - 2; j2 < cell_y + 2; j2++) {
+          if ((Math.abs(i2) % 2 === 1 && Math.abs(j2) % 2 === 0) || (Math.abs(i2) % 2 === 0 && Math.abs(j2) % 2 === 1)) {
+            const ix = (i2) * l / 2;
+            const iy = (j2) * hv;
+            const dx = ix - v[0];
+            const dy = iy - v[1];
+            d = dx * dx + dy * dy;
+            if (d < md) { md = d; x1 = (i2) * l / 2; y1 = (j2) * hv; ps.unshift(x1, y1); }
+          }
+        }
+      }
+      // Draw either from vertex to nearest lattice point or between lattice points
+      if (rand() > 0.5) {
+        ctx.moveTo(v[0], v[1]);
+        ctx.lineTo(ps[0], ps[1]);
+      } else {
+        x2 = ps[2]; y2 = ps[3];
+        ctx.moveTo(ps[0], ps[1]);
+        ctx.lineTo(x2, y2);
+        // Occasionally queue a filled triangle accent (beat increases chance)
+        if (rand() > (0.95 - (beat ? 0.15 : 0))) {
+          fills.push([ps[0], ps[1], x2, y2, ps[4], ps[5]]);
+        }
+      }
+    }
+    ctx.stroke();
+    // Fills
+    if (fills.length) {
+      ctx.beginPath();
+      ctx.fillStyle = panel.color;
+      ctx.globalAlpha = 0.08 + energy * 0.10 + (beat ? 0.12 : 0);
+      for (const ps of fills) {
+        ctx.moveTo(ps[0], ps[1]);
+        ctx.lineTo(ps[2], ps[3]);
+        ctx.lineTo(ps[4], ps[5]);
+        ctx.closePath();
+      }
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Dancer FBX: render with Three.js offscreen and composite into panel region
+const dancerFBX = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panelKey, energy, freq, now, panel } = r as RenderContext & { panel: { dancerSources?: DancerSources } };
+  // Use per-panel sources if provided, otherwise defaults
+  const sources: DancerSources = panel.dancerSources ?? {
+    characterUrl: '/character/character.fbx',
+    animationUrls: ['/dance/Wave Hip Hop Dance.fbx', '/dance/Twist Dance.fbx']
+  };
+  // Render offscreen and draw into 2D canvas
+  const key = `${panelKey}|${sources.characterUrl ?? ''}|${(sources.animationUrls ?? []).join(',')}`;
+  renderDancer(key, sources, Math.max(1, Math.floor(w)), Math.max(1, Math.floor(h)), energy, true, freq, now)
+    .then((canvas) => {
+      try { ctx.drawImage(canvas, x, y, w, h); } catch {}
+    })
+    .catch(() => {/* ignore in render loop */});
+};
+
+// Persistent state helper
+type StateMap<T> = Map<string, T>;
+// Global state map for persistent visualizer data per panel/mode
+const states: StateMap<unknown> = new Map();
+function getState<T>(key: string, init: () => T): T {
+  if (!states.has(key)) states.set(key, init());
+  return states.get(key) as T;
+}
+
+// Firefly Swarm: glowing particles wander; speed/glow react to energy
+const fireflySwarm = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, energy, panelKey, freq } = r;
+  const key = `${panelKey}:firefly`;
+  type Particle = { px: number; py: number; vx: number; vy: number; glow: number };
+  const parts = getState<Particle[]>(key, () => {
+    const N = Math.floor(Math.max(24, (w * h) / 25000));
+    return Array.from({ length: N }, () => ({
+      px: x + Math.random() * w,
+      py: y + Math.random() * h,
+      vx: (Math.random() - 0.5) * 0.8,
+      vy: (Math.random() - 0.5) * 0.8,
+      glow: Math.random() * 6 + 6,
+    }));
+  });
+  // Update and draw
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of parts) {
+    // Wander with slight random and react to energy
+    const accel = 0.05 + energy * 0.2;
+    p.vx += (Math.random() - 0.5) * accel;
+    p.vy += (Math.random() - 0.5) * accel;
+    // Limit velocity
+    const maxV = 1.2 + energy * 1.0;
+    const sp = Math.hypot(p.vx, p.vy);
+    if (sp > maxV) { p.vx = (p.vx / sp) * maxV; p.vy = (p.vy / sp) * maxV; }
+    p.px += p.vx; p.py += p.vy;
+    // Wrap around region
+    if (p.px < x) p.px = x + w;
+    if (p.px > x + w) p.px = x;
+    if (p.py < y) p.py = y + h;
+    if (p.py > y + h) p.py = y;
+    // Map particle X position to a frequency bin to drive brightness
+    const ratioX = Math.max(0, Math.min(1, (p.px - x) / Math.max(1, w)));
+    const idx = Math.floor(ratioX * Math.max(1, freq.length - 1));
+    const fv = freq[idx] / 255; // local frequency value 0..1
+    const brightness = clamp(0.25 + fv * 0.9 + energy * 0.4, 0.25, 1.0);
+    // Draw glowing dot that lights up with local frequency energy
+    ctx.shadowColor = panel.color;
+    ctx.shadowBlur = p.glow + fv * 24 + energy * 12;
+    ctx.globalAlpha = brightness;
+    ctx.fillStyle = panel.color;
+    ctx.beginPath();
+  ctx.arc(p.px, p.py, 1.8 + fv * 1.5 + energy * 1.0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+};
+
+// Snowfall React: falling flakes with speed/size affected by energy
+const snowfallReact = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, energy, panelKey } = r;
+  const key = `${panelKey}:snow`;
+  type Flake = { px: number; py: number; size: number; speed: number; drift: number };
+  const flakes = getState<Flake[]>(key, () => {
+    const N = Math.floor(Math.max(30, w / 12));
+    return Array.from({ length: N }, () => ({
+      px: x + Math.random() * w,
+      py: y + Math.random() * h,
+      size: Math.random() * 2 + 1,
+      speed: Math.random() * 0.8 + 0.4,
+      drift: (Math.random() - 0.5) * 0.4,
+    }));
+  });
+  ctx.save();
+  ctx.fillStyle = panel.color;
+  ctx.globalAlpha = 0.9;
+  for (const f of flakes) {
+    f.py += f.speed * (1 + energy * 1.5);
+    f.px += f.drift;
+    if (f.py > y + h) { f.py = y - 2; f.px = x + Math.random() * w; }
+    if (f.px < x) f.px = x + w;
+    if (f.px > x + w) f.px = x;
+    ctx.beginPath();
+    ctx.arc(f.px, f.py, f.size * (1 + energy * 0.5), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Rain React: fast vertical streaks; speed/length react to energy
+const rainReact = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, energy, panelKey } = r;
+  const key = `${panelKey}:rain`;
+  type Drop = { px: number; py: number; len: number; speed: number };
+  const drops = getState<Drop[]>(key, () => {
+    const N = Math.floor(Math.max(40, w / 10));
+    return Array.from({ length: N }, () => ({
+      px: x + Math.random() * w,
+      py: y + Math.random() * h,
+      len: Math.random() * 10 + 8,
+      speed: Math.random() * 2 + 1.5,
+    }));
+  });
+  ctx.save();
+  ctx.strokeStyle = panel.color;
+  ctx.lineWidth = 1.2;
+  ctx.globalAlpha = clamp(0.4 + energy * 0.6, 0.4, 1);
+  // Use high-frequency energy to drive rain intensity
+  const highBins = Math.floor(r.freq.length / 3);
+  let highEnergy = 0;
+  for (let i = r.freq.length - highBins; i < r.freq.length; i++) highEnergy += r.freq[i];
+  highEnergy = highEnergy / (255 * Math.max(1, highBins));
+  for (const d of drops) {
+    d.py += d.speed * (1.2 + highEnergy * 3.0 + energy * 0.8);
+    if (d.py - d.len > y + h) {
+      d.py = y - 2; d.px = x + Math.random() * w; d.len = Math.random() * 10 + 8;
+    }
+    ctx.beginPath();
+    ctx.moveTo(d.px, d.py);
+    ctx.lineTo(d.px, d.py - d.len * (1 + highEnergy * 1.5 + energy * 0.5));
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Smoke / Fog Pulse: soft puffs that appear and expand on bass pulses
+const smokeFogPulse = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, energy, panelKey, freq } = r;
+  const key = `${panelKey}:fog`;
+  type Puff = { px: number; py: number; r: number; alpha: number; grow: number };
+  const state = getState<{ puffs: Puff[]; prevLow: number }>(key, () => ({ puffs: [], prevLow: 0 }));
+  // Bass energy
+  const lowBins = Math.floor(freq.length / 4);
+  let lowEnergy = 0; for (let i = 0; i < lowBins; i++) lowEnergy += freq[i];
+  lowEnergy = lowEnergy / (255 * Math.max(1, lowBins));
+  const beat = lowEnergy - state.prevLow > 0.08;
+  state.prevLow = state.prevLow * 0.85 + lowEnergy * 0.15;
+  if (beat) {
+    // spawn a few puffs
+    for (let k = 0; k < 3; k++) {
+      state.puffs.push({
+        px: x + Math.random() * w,
+        py: y + Math.random() * h,
+        r: 6 + Math.random() * 10,
+        alpha: 0.05 + Math.random() * 0.08,
+        grow: 0.4 + Math.random() * 0.8,
+      });
+    }
+    // limit
+    if (state.puffs.length > 120) state.puffs.splice(0, state.puffs.length - 120);
+  }
+  ctx.save();
+  ctx.fillStyle = panel.color;
+  for (const p of state.puffs) {
+    // expand and fade
+    p.r += p.grow * (1 + energy);
+    p.alpha *= 0.985;
+    if (p.alpha < 0.01) continue;
+    ctx.globalAlpha = p.alpha;
+    ctx.shadowColor = panel.color;
+    ctx.shadowBlur = 24;
+    ctx.beginPath();
+    ctx.arc(p.px, p.py, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Cloud Drift: soft blobs drifting slowly; energy affects size and opacity subtly
+const cloudDrift = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, energy, panelKey } = r;
+  const key = `${panelKey}:cloud`;
+  type Blob = { px: number; py: number; r: number; vx: number };
+  const blobs = getState<Blob[]>(key, () => {
+    const N = Math.floor(Math.max(6, w / 200));
+    return Array.from({ length: N }, () => ({
+      px: x + Math.random() * w,
+      py: y + Math.random() * h,
+      r: 30 + Math.random() * 40,
+      vx: (Math.random() - 0.5) * 0.3,
+    }));
+  });
+  ctx.save();
+  ctx.fillStyle = panel.color;
+  for (const b of blobs) {
+    b.px += b.vx * (1 + energy * 0.5);
+    if (b.px < x - 50) b.px = x + w + 50;
+    if (b.px > x + w + 50) b.px = x - 50;
+    ctx.globalAlpha = 0.06 + energy * 0.08;
+    ctx.shadowColor = panel.color;
+    ctx.shadowBlur = 30;
+    ctx.beginPath();
+    ctx.arc(b.px, b.py, b.r * (1 + energy * 0.2), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Soft Plasma: layered radial gradients with subtle motion; energy modulates scale
+const softPlasma = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, energy, now, panelKey } = r;
+  const key = `${panelKey}:plasma`;
+  type Node = { px: number; py: number; r: number; phase: number };
+  const nodes = getState<Node[]>(key, () => {
+    const N = 3;
+    return Array.from({ length: N }, () => ({
+      px: x + Math.random() * w,
+      py: y + Math.random() * h,
+      r: Math.min(w, h) / 6,
+      phase: Math.random() * Math.PI * 2,
+    }));
+  });
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const n of nodes) {
+    // gentle bobbing
+    const px = n.px + Math.sin(now + n.phase) * 8;
+    const py = n.py + Math.cos(now * 0.8 + n.phase) * 6;
+    const r2 = n.r * (1 + energy * 0.4);
+    const grad = ctx.createRadialGradient(px, py, 0, px, py, r2);
+    grad.addColorStop(0, `${panel.color}`);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(px, py, r2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+};
+
+// Radar Sweep: sweeping beam highlights blips; blips spawn on energy peaks
+const radarSweep = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, energy, now, panelKey, freq } = r;
+  const key = `${panelKey}:radar`;
+  type Blip = { angle: number; radius: number; alpha: number };
+  const state = getState<{ blips: Blip[]; prevHigh: number }>(key, () => ({ blips: [], prevHigh: 0 }));
+  const cx = x + w / 2; const cy = y + h / 2;
+  const maxR = Math.min(w, h) / 2 - 8;
+  // Background grid rings
+  ctx.save();
+  ctx.strokeStyle = panel.color;
+  ctx.globalAlpha = 0.08 + energy * 0.05;
+  for (let i = 1; i <= 4; i++) {
+    ctx.beginPath(); ctx.arc(cx, cy, (maxR / 4) * i, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  // Compute high-frequency energy for blip spawning
+  const highBins = Math.floor(freq.length / 3);
+  let highEnergy = 0; for (let i = freq.length - highBins; i < freq.length; i++) highEnergy += freq[i];
+  highEnergy = highEnergy / (255 * Math.max(1, highBins));
+  const peak = highEnergy - state.prevHigh > 0.06;
+  state.prevHigh = state.prevHigh * 0.9 + highEnergy * 0.1;
+  if (peak) {
+    const count = 2 + Math.floor(highEnergy * 4);
+    for (let k = 0; k < count; k++) {
+      state.blips.push({ angle: Math.random() * Math.PI * 2, radius: 12 + Math.random() * (maxR - 12), alpha: 0.7 });
+    }
+    if (state.blips.length > 120) state.blips.splice(0, state.blips.length - 120);
+  }
+  // Sweeping beam
+  const sweepAngle = (now * 0.8) % (Math.PI * 2);
+  const beamWidth = 0.12;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = panel.color;
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.4 + highEnergy * 0.6;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.cos(sweepAngle) * maxR, cy + Math.sin(sweepAngle) * maxR);
+  ctx.stroke();
+  // Blips
+  for (const b of state.blips) {
+    // Fade over time
+    b.alpha *= 0.985;
+    if (b.alpha < 0.05) continue;
+    const dx = Math.cos(b.angle) * b.radius;
+    const dy = Math.sin(b.angle) * b.radius;
+    const near = Math.abs(((b.angle - sweepAngle + Math.PI * 2) % (Math.PI * 2)) - Math.PI) < beamWidth;
+    const a = b.alpha * (near ? 1.5 : 0.7) * (0.6 + energy * 0.6);
+    ctx.globalAlpha = Math.min(1, a);
+    ctx.beginPath();
+    ctx.arc(cx + dx, cy + dy, near ? 3.5 : 2.0, 0, Math.PI * 2);
+    ctx.fillStyle = panel.color;
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+};
+
+// Orbital Particles: dots orbit center with varying radii/speeds; speed reacts to frequency
+const orbitalParticles = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, energy, panelKey, freq } = r;
+  const key = `${panelKey}:orbit`;
+  type Part = { angle: number; radius: number; speed: number; size: number };
+  const parts = getState<Part[]>(key, () => {
+    const N = Math.floor(Math.max(30, (w + h) / 20));
+    const minR = Math.min(w, h) / 6;
+    const maxR = Math.min(w, h) / 2 - 10;
+    return Array.from({ length: N }, () => ({
+      angle: Math.random() * Math.PI * 2,
+      radius: minR + Math.random() * (maxR - minR),
+      speed: 0.3 + Math.random() * 0.8,
+      size: 1.5 + Math.random() * 1.5,
+    }));
+  });
+  const cx = x + w / 2; const cy = y + h / 2;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of parts) {
+    // Map radius to a frequency bin to drive speed/brightness
+    const ratioR = (p.radius - Math.min(w, h) / 6) / Math.max(1, (Math.min(w, h) / 2 - 10) - (Math.min(w, h) / 6));
+    const idx = Math.floor(ratioR * Math.max(1, freq.length - 1));
+    const fv = freq[idx] / 255;
+    p.angle += (p.speed + fv * 1.2) * 0.02 * (1 + energy * 0.6);
+    const px = cx + Math.cos(p.angle) * p.radius;
+    const py = cy + Math.sin(p.angle) * p.radius;
+    const glow = 6 + fv * 24 + energy * 10;
+    ctx.shadowColor = panel.color;
+    ctx.shadowBlur = glow;
+    ctx.globalAlpha = 0.5 + fv * 0.5;
+    ctx.fillStyle = panel.color;
+    ctx.beginPath();
+    ctx.arc(px, py, p.size * (1 + fv * 0.8 + energy * 0.4), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+};
+
+// Registry mapping
+export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
+  // Core
+  'vertical-bars': verticalBars,
+  'horizontal-bars': horizontalBars,
+  'mirrored-bars': mirroredBars,
+  'waveform': waveform,
+  'thick-wave': thickWave,
+  'dual-wave': dualWave,
+  'high-graphics': ({ ctx, x, y, w, h }) => {
+    // WebGL high-graphics visualizer is rendered elsewhere; draw a subtle frame
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-nebula': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-tunnel': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-curl': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-spiral': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-fog': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-cells': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-trunk': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-rings': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-rings-trails': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-kaleidoscope': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-flow-field': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-hexagon': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-hex-paths': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'high-graphics-net': ({ ctx, x, y, w, h }) => {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.strokeRect(x + 4, y + 4, w - 8, h - 8); ctx.restore();
+  },
+  'circular-bars': circularBars,
+  'rotating-circular-bars': rotatingCircularBars,
+  'radial-waveform': radialWaveform,
+  'pulse-circle': pulseCircle,
+  'concentric-rings': concentricRings,
+  'expanding-wave-rings': expandingWaveRings,
+  // Baseline for complex ones
+  'particle-field': simpleGradientSpectrum,
+  'particle-burst': simpleGradientSpectrum,
+  'floating-dots': minimalDotPulse,
+  'bubble': minimalDotPulse,
+  'neon-glow-wave': neonGlowWave,
+  'audio-spikes': simpleGradientSpectrum,
+  'peak-dots': minimalDotPulse,
+  'frequency-heatmap': frequencyHeatmap,
+  'gradient-spectrum': simpleGradientSpectrum,
+  'spiral-spectrum': radialWaveform,
+  'polygon-pulse': pulseCircle,
+  'rotating-polygon': rotatingCircularBars,
+  'starburst': starburst,
+  'line-mesh': simpleGradientSpectrum,
+  'particle-mesh': simpleGradientSpectrum,
+  'orbital-particles': orbitalParticles,
+  'breathing-blob': pulseCircle,
+  'soft-plasma': softPlasma,
+  'noise-flow': neonGlowWave,
+  'light-rays': starburst,
+  'equalizer-arc': radialWaveform,
+  'radar-sweep': radarSweep,
+  'audio-sun': starburst,
+  'audio-moon': pulseCircle,
+  'tunnel': rippleField,
+  'vortex': rippleField,
+  'ripple-field': rippleField,
+  'echo-trails': neonGlowWave,
+  'comet-tails': starburst,
+  'firefly-swarm': fireflySwarm,
+  'snowfall-react': snowfallReact,
+  'rain-react': rainReact,
+  'smoke-fog-pulse': smokeFogPulse,
+  'cloud-drift': cloudDrift,
+  'ocean-wave': thickWave,
+  'horizon-pulse': pulseCircle,
+  'audio-landscape': skylineBars,
+  'skyline-bars': skylineBars,
+  'minimal-dot-pulse': minimalDotPulse,
+  'triangular-net': triangularNet,
+  'dancer-fbx': dancerFBX,
+  // Synonyms for backward compatibility
+  'bars': verticalBars,
+  'wave': waveform,
+  'circle': circularBars,
+};
