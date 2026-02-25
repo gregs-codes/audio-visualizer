@@ -580,6 +580,60 @@ export default function App() {
 						style={{ color: showLogs ? 'var(--accent, #7aa2ff)' : undefined }}>
 						📋 Logs
 					</button>
+					<button className="icon-btn" style={{ marginLeft: 8, color: '#00ffc8', fontWeight: 700 }} onClick={async () => {
+						// Set demo audio
+						const audioResp = await fetch('/demo/demo.wav');
+						const audioBlob = await audioResp.blob();
+						const audioFile = new File([audioBlob], 'demo.wav', { type: audioBlob.type });
+						setAudioFile(audioFile);
+						const a = await init(audioFile);
+						setAnalyserNode(a);
+						setAudioEl(audioRef.current);
+						setReady(true);
+
+						// Set demo background
+						setBgMode('image');
+						setBgImageUrl('/demo/demo.jpg');
+						setBgFit('cover');
+						setBgOpacity(1);
+
+						// Set title and description
+						setTitle('Demo');
+						setTitlePos('mt'); // top middle
+						setTitleFx({ float: false, bounce: true, pulse: true });
+						setDesc('Yegor Shabanov');
+						setDescPos('lt'); // top left
+						setDescFx({ float: false, bounce: true, pulse: true });
+
+						// Set visualizer mode to rotating circular bars
+						setPanels([{
+							mode: 'rotating-circular-bars',
+							color: color,
+							band: 'full',
+							colors: { low: '#00d08a', mid: '#7aa2ff', high: '#ff6b6b' },
+							hgView: 'top',
+						}]);
+
+						// Set dancer overlay
+						setShowDancer(true);
+						setDancerPos('mm'); // middle
+						setDancerSize(100); // 100%
+						setDancerOverlaySources({
+							characterUrl: '/character/Maria J J Ong.fbx',
+							animationUrls: [
+								'/dance/Swing Dancing.fbx',
+								'/dance/Twist Dance.fbx',
+								'/dance/Wave Hip Hop Dance.fbx',
+							],
+						});
+						// Play audio after everything is set
+						setTimeout(() => {
+							const el = audioRef.current;
+							if (el) el.play();
+						}, 400);
+					}} aria-label="Demo Mode">
+						🎬 Demo
+					</button>
 					{showLogs && (
 						<div style={{
 							position: 'absolute', top: '100%', right: 0, zIndex: 1000,
