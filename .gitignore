@@ -3,6 +3,8 @@ ai-mechanic/
 threejs-react-app/
 v0-monsters-nightmare/
 *
+!src/visualizer/
+!src/visualizer/VisualizerCanvasWithTriangles.tsx
 !server/
 !server/**
 # Logs
