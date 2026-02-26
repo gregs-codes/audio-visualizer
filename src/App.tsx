@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import VisualizerPanel from './components/VisualizerPanel';
 import { useAudioAnalyzer } from './audio/useAudioAnalyzer';
-import { GridVisualizerCanvas } from './visualizer/GridVisualizerCanvas';
-import VisualizerCanvasWithTriangles from './visualizer/VisualizerCanvasWithTriangles';
+// ...existing code...
 import type { VisualizerMode, FrequencyBand } from './visualizer/visualizerModes';
 import type { DancerSources } from './visualizer/dancer/DancerEngine';
 import { DancerPreview } from './visualizer/dancer/DancerPreview';
@@ -10,7 +10,12 @@ import { CHARACTER_FILES } from './visualizer/dancer/characters';
 import { VISUALIZER_MODES, LABELS } from './visualizer/visualizers';
 
 const CUSTOM_MODES = [
-	{ key: 'triangles-bars', label: 'Triangles + Bars' }
+	{ key: 'triangles-bars', label: 'Triangles + Bars' },
+	{ key: 'threejs-3d', label: '3D Three.js Visualizer' },
+	{ key: 'threejs-points', label: '3D Points Sphere' },
+	{ key: 'threejs-shader', label: 'Shader Beast Visualizer' },
+	{ key: 'threejs-ripples', label: 'Water Ripples Visualizer' },
+	{ key: 'beast-shader-canvas', label: 'Beast Shader Canvas (Pure WebGL)' },
 ];
 import type { LayoutMode } from './visualizer/GridVisualizerCanvas';
 import { useCanvasRecorder } from './recorder/useCanvasRecorder';
@@ -37,7 +42,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const { start, stop } = useCanvasRecorder();
 	const [audioFile, setAudioFile] = useState<File | null>(null);
 	const [serverRendering, setServerRendering] = useState(false);
-	const [serverRenderError, setServerRenderError] = useState('');
+	// ...existing code...
 
 	// Auto export via query params (for server-side rendering through Puppeteer)
 	const [autoExport, setAutoExport] = useState<boolean>(false);
@@ -80,7 +85,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [exportPhase, setExportPhase] = useState<'intro' | 'playing' | 'outro' | undefined>(undefined);
 	const [isPlaying, setIsPlaying] = useState<boolean>(false);
 	const [progress, setProgress] = useState<number>(0); // 0..1
-	const [volume, setVolume] = useState<number>(80);
+	const [volume] = useState<number>(80);
 	const wrapRef = useRef<HTMLDivElement | null>(null);
 
 	// Intro/Outro duration (seconds) — visible in UI
@@ -538,7 +543,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 		requestAnimationFrame(() => { isSyncingScroll.current = false; });
 	}, [progress]);
 
-		type PanelConfig = { mode: VisualizerMode; color: string; band: FrequencyBand; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources; hgView?: 'top'|'side' };
+		type PanelConfig = { mode: VisualizerMode | 'triangles-bars' | 'threejs-3d' | 'threejs-points' | 'threejs-shader'; color: string; band: FrequencyBand; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources; hgView?: 'top'|'side' };
 	const defaultPanelColors = { low: '#00d08a', mid: '#7aa2ff', high: '#ff6b6b' };
 		const [panels, setPanels] = useState<PanelConfig[]>([{ mode: 'vertical-bars', color, band: 'full', colors: defaultPanelColors, hgView: 'top' }]);
 
@@ -786,7 +791,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 										<option value='voice'>Voice</option>
 										<option value='treble'>Treble</option>
 									</select>
-									{(['high-graphics-fog','high-graphics-trunk','high-graphics-rings','high-graphics-net','high-graphics-rings-trails','high-graphics-flow-field','high-graphics-hexagon'] as VisualizerMode[]).includes(p.mode) && (
+									 {(['high-graphics-fog','high-graphics-trunk','high-graphics-rings','high-graphics-net','high-graphics-rings-trails','high-graphics-flow-field','high-graphics-hexagon','threejs-3d','threejs-points','threejs-shader','triangles-bars'] as (VisualizerMode | 'triangles-bars' | 'threejs-3d' | 'threejs-points' | 'threejs-shader')[]).includes(p.mode) && (
 										<select value={p.hgView ?? 'top'} onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, hgView: e.target.value as 'top'|'side' } : x))}>
 											<option value='top'>Top</option>
 											<option value='side'>Side</option>
@@ -1283,61 +1288,40 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 					{/* Only show overlays in the correct position, no duplicate title/timer. */}
 					{ready && analyserNode && (
 						<>
-							{panels[0]?.mode === 'triangles-bars' ? (
-								<VisualizerCanvasWithTriangles
-									analyser={analyserNode}
-									backgroundUrl={bgMode === 'image' ? bgImageUrl : undefined}
-									backgroundType={bgMode === 'image' ? 'image' : undefined}
-									backgroundFit={bgFit}
-								/>
-							) : (
-								<GridVisualizerCanvas
-									ref={canvasRef}
-									analyser={analyserNode}
-									analysers={analysers}
-									layout={layout}
-									panels={panels}
-									width={previewSize.w}
-									height={previewSize.h}
-									audio={audioEl}
-									backgroundColor={bgMode === 'color' ? bgColor : undefined}
-									backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
-									backgroundFit={bgFit}
-									backgroundOpacity={bgOpacity}
-									bgMode={bgMode}
-									instanceKey={'preview'}
-									overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
-									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
-									overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
-									overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
-									overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
-									exportPhase={exportPhase}
-								/>
-							)}
-							<div style={{ position: 'absolute', left: -9999, top: -9999, width: 1, height: 1, overflow: 'hidden' }}>
-								<GridVisualizerCanvas
-									ref={exportCanvasRef}
-									analyser={analyserNode}
-									analysers={analysers}
-									layout={layout}
-									panels={panels}
-									width={effectiveSize.w}
-									height={effectiveSize.h}
-									audio={audioEl}
-									backgroundColor={bgMode === 'color' ? bgColor : undefined}
-									backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
-									backgroundFit={bgFit}
-									backgroundOpacity={bgOpacity}
-									bgMode={bgMode}
-									instanceKey={'export'}
-									overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
-									overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
-									overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
-									overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
-									overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
-									exportPhase={exportPhase}
-								/>
-							</div>
+							<VisualizerPanel
+								analyserNode={analyserNode}
+								analysers={analysers}
+								layout={layout}
+								panels={panels}
+								previewSize={previewSize}
+								effectiveSize={effectiveSize}
+								audioEl={audioEl}
+								bgMode={bgMode as 'none'|'color'|'image'|'parallax'|undefined}
+								bgColor={bgColor}
+								bgImageUrl={bgImageUrl}
+								bgFit={bgFit as 'cover'|'contain'|'stretch'|undefined}
+								bgOpacity={bgOpacity}
+								title={title}
+								titlePos={titlePos}
+								titleColor={titleColor}
+								titleFx={titleFx}
+								desc={desc}
+								descPos={descPos}
+								descColor={descColor}
+								descFx={descFx}
+								countPos={countPos}
+								countColor={countColor}
+								countFx={countFx}
+								showDancer={showDancer}
+								dancerPos={dancerPos}
+								dancerSize={dancerSize}
+								dancerOverlaySources={dancerOverlaySources}
+								stereo={stereo}
+								color={color}
+								exportPhase={exportPhase}
+								canvasRef={canvasRef}
+								exportCanvasRef={exportCanvasRef}
+							/>
 							{/* Fullscreen toggle */}
 							<button
 								className="icon-btn fullscreen"

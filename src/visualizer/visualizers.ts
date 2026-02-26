@@ -95,7 +95,9 @@ export const VISUALIZER_MODES = [
 
 export type VisualizerMode = typeof VISUALIZER_MODES[number];
 
-export const LABELS: Record<VisualizerMode, string> = {
+// Visualizer labels for UI
+export const LABELS: Record<string, string> = {
+  'threejs-ripples': 'Water Ripples (WebGL)',
   'high-graphics': 'High Graphics (WebGL)',
   'high-graphics-nebula': 'HG: Nebula (WebGL)',
   'high-graphics-tunnel': 'HG: Tunnel (WebGL)',
