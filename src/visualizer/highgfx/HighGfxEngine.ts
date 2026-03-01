@@ -51,15 +51,9 @@ export async function renderHighGfxWithFeatures(
     camera.position.set(0, 25, 115);
     camera.lookAt(new THREE.Vector3(0, 0, 0));
 
-    // Lights and background
+    // Lights
     const amb = new THREE.AmbientLight(0xffffff, 0.25);
     scene.add(amb);
-
-    const bgGeom = new THREE.PlaneGeometry(400, 400);
-    const bgMat = new THREE.MeshBasicMaterial({ color: 0x05060a });
-    const bg = new THREE.Mesh(bgGeom, bgMat);
-    bg.position.z = -100;
-    scene.add(bg);
 
     // Particles
     const particleCount = 700;

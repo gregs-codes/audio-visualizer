@@ -96,6 +96,17 @@ function fxStyle(fx?: { float?: boolean; bounce?: boolean; pulse?: boolean }): R
   return {};
 }
 
+// Map 9-grid or 5-grid position code to VUMeters anchor
+function vuPosToAnchor(pos: string | undefined): 'lt' | 'ct' | 'rt' | 'bl' | 'br' {
+  switch (pos) {
+    case 'lt': case 'lm': return 'lt';
+    case 'ct': case 'mt': case 'mm': case 'mb': return 'ct';
+    case 'lb': case 'bl': return 'bl';
+    case 'rb': case 'br': return 'br';
+    case 'rt': case 'rm': default: return 'rt';
+  }
+}
+
 const VisualizerOverlays: React.FC<OverlayProps> = ({
   width,
   height,
@@ -120,7 +131,7 @@ const VisualizerOverlays: React.FC<OverlayProps> = ({
   exportPhase,
   stereo,
   vuColor = '#7aa2ff',
-  vuPos = 'rt',
+  vuPos,
 }) => {
   const scaleFactor = height / 720;
   const dancerW = Math.max(80, Math.round(width * (dancerSize / 100)));
@@ -135,7 +146,7 @@ const VisualizerOverlays: React.FC<OverlayProps> = ({
   }, [audioEl]);
 
   return (
-    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+    <div className="overlay-controls" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
       {/* Dancer overlay */}
       {showDancer && dancerOverlaySources && (
         <div style={dancerContainerStyle(dancerPos, width, height, dancerW, dancerH)}>
@@ -211,11 +222,15 @@ const VisualizerOverlays: React.FC<OverlayProps> = ({
         </div>
       )}
 
-      {/* VU meters overlay */}
+      {/* VU meters overlay - horizontal bars anchored near countdown position */}
       {stereo && stereo.left && stereo.right && (
-        <div style={{ ...positionStyle(vuPos, width, height) }}>
-          <VUMeters left={stereo.left} right={stereo.right} accentColor={vuColor} orientation="vertical" />
-        </div>
+        <VUMeters
+          left={stereo.left}
+          right={stereo.right}
+          accentColor={vuColor}
+          orientation="horizontal"
+          anchorPos={vuPosToAnchor(vuPos ?? countPos)}
+        />
       )}
     </div>
   );

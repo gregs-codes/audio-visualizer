@@ -22,11 +22,13 @@ const ThreeAudioVisualizer: React.FC<ThreeAudioVisualizerProps> = ({ analyser, w
     if (!mountRef.current) return;
     // Scene setup
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
+    scene.background = null;
     const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
     camera.position.z = 60;
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    renderer.setClearColor(0x000000, 0);
     renderer.setSize(width, height);
+    renderer.domElement.style.background = 'transparent';
     mountRef.current.appendChild(renderer.domElement);
 
     // Lighting (optional, for subtle shading)

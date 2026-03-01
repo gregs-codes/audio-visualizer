@@ -65,8 +65,10 @@ const BeastShaderCanvas = ({ width = 512, height = 512, color = { r: 1, g: 1, b:
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const gl = canvas.getContext('webgl');
+    const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: false });
     if (!gl) return;
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     // Compile shaders
     function compileShader(type, source) {
@@ -106,7 +108,7 @@ const BeastShaderCanvas = ({ width = 512, height = 512, color = { r: 1, g: 1, b:
     function render() {
       const now = performance.now();
       gl.viewport(0, 0, width, height);
-      gl.clearColor(0, 0, 0, 1);
+      gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.useProgram(program);
       gl.uniform1f(uTime, (now - start) * 0.001);
@@ -150,7 +152,7 @@ const BeastShaderCanvas = ({ width = 512, height = 512, color = { r: 1, g: 1, b:
           borderRadius: '50%',
         }} />
       )}
-      <canvas ref={canvasRef} width={width} height={height} style={{ width, height, background: backgroundColor || '#000', borderRadius: '50%', position: 'relative', zIndex: 1 }} />
+      <canvas ref={canvasRef} width={width} height={height} style={{ width, height, background: 'transparent', position: 'relative', zIndex: 1 }} />
     </div>
   );
 };

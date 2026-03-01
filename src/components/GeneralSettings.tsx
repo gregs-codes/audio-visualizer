@@ -63,10 +63,17 @@ export function GeneralSettings(props: GeneralSettingsProps) {
                 <option value='none'>None</option>
                 <option value='color'>Color</option>
                 <option value='image'>Image</option>
-                <option value='parallax-spotlights'>Parallax (Spotlights)</option>
-                <option value='parallax-lasers'>Parallax (Lasers)</option>
-                <option value='parallax-tunnel'>Parallax (Tunnel/Starfield)</option>
-                <option value='parallax-rays'>Parallax (Rays)</option>
+                <optgroup label="Parallax">
+                  <option value='parallax-spotlights'>Parallax (Spotlights)</option>
+                  <option value='parallax-lasers'>Parallax (Lasers)</option>
+                  <option value='parallax-tunnel'>Parallax (Tunnel/Starfield)</option>
+                  <option value='parallax-rays'>Parallax (Rays)</option>
+                </optgroup>
+                <optgroup label="Audio Visualizer BG">
+                  <option value='bg-viz-bars'>Viz BG (Bars)</option>
+                  <option value='bg-viz-radial'>Viz BG (Radial)</option>
+                  <option value='bg-viz-orbs'>Viz BG (Orbs)</option>
+                </optgroup>
               </select>
             </label>
             {bgMode === 'color' && (
@@ -78,6 +85,14 @@ export function GeneralSettings(props: GeneralSettingsProps) {
                 <label>Opacity
                   <input type='range' min={0} max={100} value={Math.round(bgOpacity * 100)} onChange={e => setBgOpacity(parseInt(e.target.value, 10) / 100)} />
                   <span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{Math.round(bgOpacity * 100)}%</span>
+                </label>
+              </>
+            )}
+            {(bgMode === 'bg-viz-bars' || bgMode === 'bg-viz-radial' || bgMode === 'bg-viz-orbs') && (
+              <>
+                <label>Tint
+                  <input type='color' value={bgColor} onChange={e => setBgColor(e.target.value)} />
+                  <span className="swatch" style={{ background: bgColor }} />
                 </label>
               </>
             )}
