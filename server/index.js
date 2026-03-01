@@ -126,12 +126,13 @@ app.post('/render', upload.fields([
     const {
       aspect = '16:9', res: resolution = '720', fps = '30', codec = 'vp9',
       vBitrate = '8000', aBitrate = '192', format = 'webm', mode, theme, layout, panels,
-      character, animations, dancerSize, dancerPos,
+      character, animations, dancerSize, dancerPos, showDancer,
       cameraMode, cameraElevationPct, cameraTiltDeg, cameraSpeed, cameraDistance,
       title, titlePos, titleColor, titleFloat, titleBounce, titlePulse,
       desc, descPos, descColor, descFloat, descBounce, descPulse,
       showCountdown, countPos, countColor, countFloat, countBounce, countPulse,
       bgMode, bgColor, bgImageUrl: bgImageUrlBody, bgFit, bgOpacity,
+      color, showVU,
     } = req.body || {};
 
     // Launch headless browser with generous protocol timeout to avoid premature failures
@@ -212,6 +213,7 @@ app.post('/render', upload.fields([
     if (animations) url.searchParams.set('animations', String(animations));
     if (dancerSize) url.searchParams.set('dancerSize', String(dancerSize));
     if (dancerPos) url.searchParams.set('dancerPos', String(dancerPos));
+    if (showDancer) url.searchParams.set('showDancer', '1');
     // Forward camera parameters if present
     if (cameraMode) url.searchParams.set('cameraMode', String(cameraMode));
     if (cameraElevationPct !== undefined) url.searchParams.set('cameraElevationPct', String(cameraElevationPct));
@@ -246,6 +248,9 @@ app.post('/render', upload.fields([
     if (bgImageUrl) url.searchParams.set('bgImageUrl', String(bgImageUrl));
     if (bgFit) url.searchParams.set('bgFit', String(bgFit));
     if (bgOpacity) url.searchParams.set('bgOpacity', String(bgOpacity));
+    // VU meter accent color
+    if (color) url.searchParams.set('color', String(color));
+    if (showVU) url.searchParams.set('showVU', '1');
     // Parallax/spotlight backgrounds: no extra params needed yet, but this ensures bgMode=parallax is passed to the client for correct rendering.
 
     // Stream progress via SSE

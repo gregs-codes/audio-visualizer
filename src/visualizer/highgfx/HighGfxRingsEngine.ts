@@ -92,14 +92,45 @@ export async function renderHighGfxRingsWithFeatures(
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' , preserveDrawingBuffer: true});
     renderer.setPixelRatio(1); renderer.setSize(W,H,false); renderer.setClearColor(0x000000,0);
     const scene = new THREE.Scene(); scene.background = null;
-    const camera = new THREE.OrthographicCamera(-1,1,1,-1,0.01,10); camera.position.z = 1;
+    const aspect = W / H;
+    let left, right, top, bottom;
+    if (aspect >= 1) {
+      left = -aspect;
+      right = aspect;
+      top = 1;
+      bottom = -1;
+    } else {
+      left = -1;
+      right = 1;
+      top = 1 / aspect;
+      bottom = -1 / aspect;
+    }
+    const camera = new THREE.OrthographicCamera(left, right, top, bottom, 0.01, 10);
+    camera.position.z = 1;
     const material = new THREE.ShaderMaterial({ vertexShader: vertex, fragmentShader: fragment, transparent: true, depthTest: false, blending: THREE.AdditiveBlending, uniforms: { u_time: { value: 0 }, u_res: { value: new THREE.Vector2(W,H) }, u_energy: { value: 0 }, u_bass: { value: 0 }, u_pulse: { value: 0 }, u_viewTilt: { value: 0 } } });
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2,2), material); scene.add(quad);
     const composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene,camera));
     const bloom = new UnrealBloomPass(new THREE.Vector2(W,H), 0.7, 0.6, 0.85); composer.addPass(bloom);
     eng = { canvas, renderer, scene, camera, composer, material, mesh: quad }; engines.set(key, eng);
   }
-  if(eng.canvas.width!==W || eng.canvas.height!==H){ eng.renderer.setSize(W,H,false); (eng.material.uniforms.u_res.value as THREE.Vector2).set(W,H); }
+  if(eng.canvas.width!==W || eng.canvas.height!==H){
+    eng.renderer.setSize(W,H,false);
+    (eng.material.uniforms.u_res.value as THREE.Vector2).set(W,H);
+    // Update camera for new aspect ratio
+    const aspect = W / H;
+    if (aspect >= 1) {
+      eng.camera.left = -aspect;
+      eng.camera.right = aspect;
+      eng.camera.top = 1;
+      eng.camera.bottom = -1;
+    } else {
+      eng.camera.left = -1;
+      eng.camera.right = 1;
+      eng.camera.top = 1 / aspect;
+      eng.camera.bottom = -1 / aspect;
+    }
+    eng.camera.updateProjectionMatrix();
+  }
   (eng.material.uniforms.u_time as any).value = nowSec;
   (eng.material.uniforms.u_energy as any).value = THREE.MathUtils.clamp(features.energy,0,1);
   (eng.material.uniforms.u_bass as any).value = THREE.MathUtils.clamp(features.bassLevel,0,1);

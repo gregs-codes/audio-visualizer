@@ -33,6 +33,7 @@ export const VISUALIZER_MODES = [
   'high-graphics-hexagon',
   'high-graphics-hex-paths',
   'high-graphics-net',
+  'hexagon-visualizer',
   'triangular-net',
   'vertical-bars',
   'horizontal-bars',
@@ -87,16 +88,13 @@ export const VISUALIZER_MODES = [
   'audio-landscape',
   'skyline-bars',
   'minimal-dot-pulse',
-  // Synonyms for backward compatibility
-  'bars',
-  'wave',
-  'circle',
 ] as const;
 
 export type VisualizerMode = typeof VISUALIZER_MODES[number];
 
 // Visualizer labels for UI
 export const LABELS: Record<string, string> = {
+    'hexagon-visualizer': 'Hexagon Visualizer (Soundcloud Style)',
   'threejs-ripples': 'Water Ripples (WebGL)',
   'high-graphics': 'High Graphics (WebGL)',
   'high-graphics-nebula': 'HG: Nebula (WebGL)',
@@ -184,6 +182,16 @@ const pickColor = (ratio: number, colors: RenderContext['panel']['colors'], fall
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
+// Build a horizontal gradient from low→mid→high band colors (falls back to solid color)
+const makeBandGradient = (ctx: CanvasRenderingContext2D, x: number, w: number, colors: RenderContext['panel']['colors'], fallback: string): string | CanvasGradient => {
+  if (!colors) return fallback;
+  const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+  grad.addColorStop(0, colors.low);
+  grad.addColorStop(0.5, colors.mid);
+  grad.addColorStop(1, colors.high);
+  return grad;
+};
+
 // Core 2D canvas renderers (lightweight, responsive)
 const verticalBars = (r: RenderContext) => {
   const { ctx, x, y, w, h, panel, freq } = r;
@@ -231,7 +239,7 @@ const mirroredBars = (r: RenderContext) => {
 
 const waveform = (r: RenderContext) => {
   const { ctx, x, y, w, h, panel, time } = r;
-  ctx.strokeStyle = panel.color;
+  ctx.strokeStyle = makeBandGradient(ctx, x, w, panel.colors, panel.color);
   ctx.lineWidth = 2;
   ctx.beginPath();
   for (let i = 0; i < time.length; i++) {
@@ -245,7 +253,7 @@ const waveform = (r: RenderContext) => {
 
 const thickWave = (r: RenderContext) => {
   const { ctx, x, y, w, h, panel, time } = r;
-  ctx.fillStyle = panel.color;
+  ctx.fillStyle = makeBandGradient(ctx, x, w, panel.colors, panel.color);
   ctx.globalAlpha = 0.7;
   ctx.beginPath();
   ctx.moveTo(x, y + h);
@@ -264,7 +272,7 @@ const thickWave = (r: RenderContext) => {
 const dualWave = (r: RenderContext) => {
   const { ctx, x, y, w, h, panel, time } = r;
   const half = Math.floor(time.length / 2);
-  ctx.strokeStyle = panel.color;
+  ctx.strokeStyle = makeBandGradient(ctx, x, w, panel.colors, panel.color);
   ctx.lineWidth = 2;
   // top
   ctx.beginPath();
@@ -328,19 +336,27 @@ const rotatingCircularBars = (r: RenderContext) => {
 const radialWaveform = (r: RenderContext) => {
   const { ctx, x, y, w, h, panel, time } = r;
   const cx = x + w / 2; const cy = y + h / 2; const baseR = Math.min(w, h) / 4;
-  ctx.strokeStyle = panel.color;
   ctx.lineWidth = 2;
-  ctx.beginPath();
-  for (let i = 0; i < time.length; i++) {
-    const v = time[i] / 255;
-    const a = (i / time.length) * Math.PI * 2;
-    const r2 = baseR + (v - 0.5) * baseR * 0.5;
-    const px = cx + Math.cos(a) * r2;
-    const py = cy + Math.sin(a) * r2;
-    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  // Draw in 3 color sections (low/mid/high) around the circle
+  const sections = panel.colors ? 3 : 1;
+  const segLen = Math.ceil(time.length / sections);
+  for (let s = 0; s < sections; s++) {
+    const start = s * segLen;
+    const end = Math.min((s + 1) * segLen + 1, time.length);
+    const ratio = sections === 1 ? 0 : s / (sections - 1);
+    ctx.strokeStyle = pickColor(ratio, panel.colors, panel.color);
+    ctx.beginPath();
+    for (let i = start; i < end; i++) {
+      const v = time[i] / 255;
+      const a = (i / time.length) * Math.PI * 2;
+      const r2 = baseR + (v - 0.5) * baseR * 0.5;
+      const px = cx + Math.cos(a) * r2;
+      const py = cy + Math.sin(a) * r2;
+      if (i === start) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    if (sections === 1) ctx.closePath();
+    ctx.stroke();
   }
-  ctx.closePath();
-  ctx.stroke();
 };
 
 const pulseCircle = (r: RenderContext) => {
@@ -352,7 +368,8 @@ const pulseCircle = (r: RenderContext) => {
   for (let i = 0; i < lowBins; i++) lowEnergy += freq[i];
   lowEnergy = lowEnergy / (255 * Math.max(1, lowBins));
   const R = baseR * (1 + lowEnergy * 1.2 + energy * 0.3);
-  ctx.strokeStyle = panel.color;
+  // Bass-driven circle uses the low-band color
+  ctx.strokeStyle = pickColor(0, panel.colors, panel.color);
   ctx.lineWidth = 6;
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, Math.PI * 2);
@@ -389,7 +406,7 @@ const expandingWaveRings = (r: RenderContext) => {
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.strokeStyle = panel.color;
+    ctx.strokeStyle = pickColor(k / Math.max(1, rings - 1), panel.colors, panel.color);
     ctx.lineWidth = 1.5;
     ctx.stroke();
   }
@@ -409,14 +426,290 @@ const simpleGradientSpectrum = (r: RenderContext) => {
   }
 };
 
+// Particle Field - floating particles arranged in a grid that react to frequency
+const particleFieldVisualizer = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy, now } = r;
+  const key = `${r.panelKey}:particle-field`;
+  const gridX = 16;
+  const gridY = 12;
+  const state = getState<{ particles: Array<{ baseX: number; baseY: number; freqIdx: number }> }>(
+    key, () => {
+      const particles = [];
+      for (let i = 0; i < gridX; i++) {
+        for (let j = 0; j < gridY; j++) {
+          particles.push({
+            baseX: x + (i / (gridX - 1)) * w,
+            baseY: y + (j / (gridY - 1)) * h,
+            freqIdx: Math.floor((i / gridX) * freq.length)
+          });
+        }
+      }
+      return { particles };
+    }
+  );
+  
+  ctx.save();
+  for (const p of state.particles) {
+    const v = freq[p.freqIdx] / 255;
+    const size = 2 + v * 6;
+    const offsetX = Math.sin(now * 2 + p.baseY / 50) * 10 * v;
+    const offsetY = Math.cos(now * 3 + p.baseX / 50) * 10 * v;
+    
+    ctx.fillStyle = pickColor(p.freqIdx / freq.length, panel.colors, panel.color);
+    ctx.globalAlpha = 0.4 + v * 0.6;
+    ctx.beginPath();
+    ctx.arc(p.baseX + offsetX, p.baseY + offsetY, size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Particle Burst - expanding particles on beat
+const particleBurst = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy, now } = r;
+  const key = `${r.panelKey}:particle-burst`;
+  const state = getState<{ particles: Array<{ x: number; y: number; vx: number; vy: number; life: number; hue: number }>, lastBeat: number }>(
+    key, () => ({ particles: [], lastBeat: 0 })
+  );
+  
+  // Beat detection
+  const lowBins = Math.floor(freq.length / 4);
+  let lowEnergy = 0;
+  for (let i = 0; i < lowBins; i++) lowEnergy += freq[i];
+  lowEnergy = lowEnergy / (255 * Math.max(1, lowBins));
+  
+  if (lowEnergy > 0.65 && now - state.lastBeat > 0.2) {
+    state.lastBeat = now;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const count = 20 + Math.floor(energy * 30);
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      const speed = 50 + Math.random() * 100;
+      state.particles.push({
+        x: cx, y: cy,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1.0,
+        hue: i / count
+      });
+    }
+  }
+  
+  // Update and draw particles
+  ctx.save();
+  for (let i = state.particles.length - 1; i >= 0; i--) {
+    const p = state.particles[i];
+    p.life -= 0.02;
+    if (p.life <= 0) {
+      state.particles.splice(i, 1);
+      continue;
+    }
+    p.x += p.vx * 0.016;
+    p.y += p.vy * 0.016;
+    p.vy += 80 * 0.016; // gravity
+    
+    ctx.fillStyle = pickColor(p.hue, panel.colors, panel.color);
+    ctx.globalAlpha = p.life;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3 + p.life * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Audio Spikes - sharp radiating spikes from center
+const audioSpikes = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const spikes = 32;
+  const maxLen = Math.min(w, h) / 2.5;
+  
+  ctx.save();
+  ctx.lineWidth = 2;
+  for (let i = 0; i < spikes; i++) {
+    const idx = Math.floor((i / spikes) * freq.length);
+    const v = freq[idx] / 255;
+    const angle = (i / spikes) * Math.PI * 2;
+    const len = maxLen * v * (0.3 + energy * 0.7);
+    
+    const x1 = cx + Math.cos(angle) * 10;
+    const y1 = cy + Math.sin(angle) * 10;
+    const x2 = cx + Math.cos(angle) * len;
+    const y2 = cy + Math.sin(angle) * len;
+    
+    ctx.strokeStyle = pickColor(idx / freq.length, panel.colors, panel.color);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  ctx.restore();
+};
+
+// Line Mesh - connected horizontal lines with frequency
+const lineMesh = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const lines = 16;
+  const lineSpacing = h / lines;
+  
+  ctx.save();
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < lines; i++) {
+    const py = y + i * lineSpacing;
+    ctx.strokeStyle = pickColor(i / lines, panel.colors, panel.color);
+    ctx.globalAlpha = 0.4 + energy * 0.6;
+    ctx.beginPath();
+    
+    const samples = Math.max(32, Math.floor(w / 8));
+    for (let j = 0; j <= samples; j++) {
+      const freqIdx = Math.floor((j / samples) * freq.length);
+      const v = freq[freqIdx] / 255;
+      const px = x + (j / samples) * w;
+      const offset = v * lineSpacing * 2 * Math.sin((i / lines) * Math.PI);
+      
+      if (j === 0) ctx.moveTo(px, py + offset);
+      else ctx.lineTo(px, py + offset);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Particle Mesh - particles with connecting lines
+const particleMesh = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const particles = 24;
+  const points: Array<{ x: number; y: number; intensity: number }> = [];
+  
+  // Generate particles based on frequency
+  for (let i = 0; i < particles; i++) {
+    const idx = Math.floor((i / particles) * freq.length);
+    const v = freq[idx] / 255;
+    const px = x + (i / (particles - 1)) * w;
+    const py = y + h / 2 + Math.sin((i / particles) * Math.PI * 4) * h / 4 * v;
+    points.push({ x: px, y: py, intensity: v });
+  }
+  
+  ctx.save();
+  // Draw connections
+  ctx.strokeStyle = panel.colors ? panel.colors.mid : panel.color;
+  ctx.globalAlpha = 0.2 + energy * 0.3;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      const dist = Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y);
+      if (dist < 80) {
+        ctx.beginPath();
+        ctx.moveTo(points[i].x, points[i].y);
+        ctx.lineTo(points[j].x, points[j].y);
+        ctx.stroke();
+      }
+    }
+  }
+  
+  // Draw particles
+  ctx.globalAlpha = 1;
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    ctx.fillStyle = pickColor(i / particles, panel.colors, panel.color);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 2 + p.intensity * 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+};
+
+// Skyline Bars - building silhouette effect
+const skylineBarsVisualizer = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq } = r;
+  const buildings = Math.max(32, Math.floor(w / 16));
+  const buildingW = w / buildings;
+  
+  ctx.save();
+  ctx.fillStyle = '#000000';
+  ctx.globalAlpha = 0.3;
+  ctx.fillRect(x, y, w, h);
+  ctx.globalAlpha = 1;
+  
+  for (let i = 0; i < buildings; i++) {
+    const idx = Math.floor((i / buildings) * freq.length);
+    const v = freq[idx] / 255;
+    const buildingH = v * h * 0.8;
+    const ratio = idx / freq.length;
+    
+    // Building body
+    ctx.fillStyle = pickColor(ratio, panel.colors, panel.color);
+    ctx.fillRect(x + i * buildingW, y + h - buildingH, buildingW - 2, buildingH);
+    
+    // Window lights
+    ctx.fillStyle = 'rgba(255, 255, 200, 0.6)';
+    const windows = Math.floor(buildingH / 8);
+    for (let j = 0; j < windows; j++) {
+      if (Math.random() > 0.3) {
+        ctx.fillRect(
+          x + i * buildingW + buildingW * 0.25,
+          y + h - buildingH + j * 8 + 2,
+          buildingW * 0.2, 4
+        );
+      }
+    }
+  }
+  ctx.restore();
+};
+
+// Audio Landscape - mountain/landscape profile
+const audioLandscape = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq } = r;
+  const samples = Math.max(64, Math.floor(w / 6));
+  
+  ctx.save();
+  // Sky gradient
+  const skyGrad = ctx.createLinearGradient(x, y, x, y + h);
+  skyGrad.addColorStop(0, '#0a0a1a');
+  skyGrad.addColorStop(1, '#1a1a3a');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(x, y, w, h);
+  
+  // Mountain layers (3 layers for depth)
+  const layers = 3;
+  for (let layer = 0; layer < layers; layer++) {
+    const layerOpacity = 0.4 + (layer / layers) * 0.6;
+    ctx.globalAlpha = layerOpacity;
+    ctx.fillStyle = pickColor(layer / layers, panel.colors, panel.color);
+    
+    ctx.beginPath();
+    ctx.moveTo(x, y + h);
+    
+    for (let i = 0; i <= samples; i++) {
+      const freqIdx = Math.floor(((i / samples) * freq.length) + layer * (freq.length / (layers * 2)));
+      const v = freq[Math.min(freqIdx, freq.length - 1)] / 255;
+      const px = x + (i / samples) * w;
+      const layerHeight = h * (0.3 + layer * 0.2);
+      const py = y + h - v * layerHeight;
+      ctx.lineTo(px, py);
+    }
+    
+    ctx.lineTo(x + w, y + h);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
 const neonGlowWave = (r: RenderContext) => {
   const { ctx, x, y, w, h, panel, time } = r;
   // Downsample to avoid subpixel-dense segments whose glow merges into a thick band
   const steps = Math.min(time.length, Math.max(128, Math.floor(w)));
   ctx.save();
-  ctx.shadowColor = panel.color;
+  ctx.shadowColor = panel.colors ? panel.colors.mid : panel.color;
   ctx.shadowBlur = 14;
-  ctx.strokeStyle = panel.color;
+  ctx.strokeStyle = makeBandGradient(ctx, x, w, panel.colors, panel.color);
   ctx.lineWidth = 2;
   ctx.beginPath();
   for (let i = 0; i < steps; i++) {
@@ -470,19 +763,19 @@ const rippleField = (r: RenderContext) => {
   for (let i = 0; i < rings; i++) {
     const phase = (now * 0.7 + i * 0.2) % 1;
     const R = (Math.min(w, h) / 12) * (i + 1) * (1 + energy * 0.5) + phase * 8;
-    ctx.strokeStyle = panel.color;
+    ctx.strokeStyle = pickColor(i / Math.max(1, rings - 1), panel.colors, panel.color);
     ctx.globalAlpha = clamp(0.2 + energy, 0.2, 1);
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
   }
   ctx.globalAlpha = 1;
 };
 
-const skylineBars = verticalBars;
 const minimalDotPulse = (r: RenderContext) => {
   const { ctx, x, y, w, h, panel, energy } = r;
   const cx = x + w / 2; const cy = y + h / 2;
   const R = Math.min(w, h) / 24;
-  ctx.fillStyle = panel.color;
+  // Use energy level to pick band color (low energy = low, high = high)
+  ctx.fillStyle = pickColor(energy, panel.colors, panel.color);
   ctx.beginPath();
   ctx.arc(cx, cy, R * (1 + energy * 1.5), 0, Math.PI * 2);
   ctx.fill();
@@ -534,11 +827,13 @@ const triangularNet = (r: RenderContext) => {
   ctx.save();
   ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
   ctx.translate(x + w / 2, y + h / 2);
-  ctx.strokeStyle = panel.color;
   ctx.lineWidth = 1;
   const maxScale = Math.max(w, h) / 8;
   // Layered lattice scales for depth; alpha reacts to beat/energy
   for (let s = 8; s <= maxScale; s *= 2) {
+    // Use layer depth as ratio for band coloring
+    const layerRatio = (s - 8) / Math.max(1, maxScale - 8);
+    ctx.strokeStyle = pickColor(layerRatio, panel.colors, panel.color);
     ctx.globalAlpha = ((1 - s / maxScale) * 0.12) * (0.7 + energy * 0.6 + (beat ? 0.35 : 0));
     // Render yolo at this scale
     // Measures of an equilateral triangle lattice
@@ -587,7 +882,7 @@ const triangularNet = (r: RenderContext) => {
     // Fills
     if (fills.length) {
       ctx.beginPath();
-      ctx.fillStyle = panel.color;
+      ctx.fillStyle = pickColor(layerRatio, panel.colors, panel.color);
       ctx.globalAlpha = 0.08 + energy * 0.10 + (beat ? 0.12 : 0);
       for (const ps of fills) {
         ctx.moveTo(ps[0], ps[1]);
@@ -668,10 +963,11 @@ const fireflySwarm = (r: RenderContext) => {
     const fv = freq[idx] / 255; // local frequency value 0..1
     const brightness = clamp(0.25 + fv * 0.9 + energy * 0.4, 0.25, 1.0);
     // Draw glowing dot that lights up with local frequency energy
-    ctx.shadowColor = panel.color;
+    const particleColor = pickColor(ratioX, panel.colors, panel.color);
+    ctx.shadowColor = particleColor;
     ctx.shadowBlur = p.glow + fv * 24 + energy * 12;
     ctx.globalAlpha = brightness;
-    ctx.fillStyle = panel.color;
+    ctx.fillStyle = particleColor;
     ctx.beginPath();
   ctx.arc(p.px, p.py, 1.8 + fv * 1.5 + energy * 1.0, 0, Math.PI * 2);
     ctx.fill();
@@ -697,7 +993,6 @@ const snowfallReact = (r: RenderContext) => {
     }));
   });
   ctx.save();
-  ctx.fillStyle = panel.color;
   ctx.globalAlpha = 0.9;
   for (const f of flakes) {
     f.py += f.speed * (1 + energy * 1.5);
@@ -705,6 +1000,8 @@ const snowfallReact = (r: RenderContext) => {
     if (f.py > y + h) { f.py = y - 2; f.px = x + Math.random() * w; }
     if (f.px < x) f.px = x + w;
     if (f.px > x + w) f.px = x;
+    const ratioX = Math.max(0, Math.min(1, (f.px - x) / Math.max(1, w)));
+    ctx.fillStyle = pickColor(ratioX, panel.colors, panel.color);
     ctx.beginPath();
     ctx.arc(f.px, f.py, f.size * (1 + energy * 0.5), 0, Math.PI * 2);
     ctx.fill();
@@ -728,7 +1025,6 @@ const rainReact = (r: RenderContext) => {
     }));
   });
   ctx.save();
-  ctx.strokeStyle = panel.color;
   ctx.lineWidth = 1.2;
   ctx.globalAlpha = clamp(0.4 + energy * 0.6, 0.4, 1);
   // Use high-frequency energy to drive rain intensity
@@ -741,6 +1037,8 @@ const rainReact = (r: RenderContext) => {
     if (d.py - d.len > y + h) {
       d.py = y - 2; d.px = x + Math.random() * w; d.len = Math.random() * 10 + 8;
     }
+    const ratioX = Math.max(0, Math.min(1, (d.px - x) / Math.max(1, w)));
+    ctx.strokeStyle = pickColor(ratioX, panel.colors, panel.color);
     ctx.beginPath();
     ctx.moveTo(d.px, d.py);
     ctx.lineTo(d.px, d.py - d.len * (1 + highEnergy * 1.5 + energy * 0.5));
@@ -777,14 +1075,16 @@ const smokeFogPulse = (r: RenderContext) => {
     if (state.puffs.length > 120) state.puffs.splice(0, state.puffs.length - 120);
   }
   ctx.save();
-  ctx.fillStyle = panel.color;
   for (const p of state.puffs) {
     // expand and fade
     p.r += p.grow * (1 + energy);
     p.alpha *= 0.985;
     if (p.alpha < 0.01) continue;
+    const ratioX = Math.max(0, Math.min(1, (p.px - x) / Math.max(1, w)));
+    const puffColor = pickColor(ratioX, panel.colors, panel.color);
     ctx.globalAlpha = p.alpha;
-    ctx.shadowColor = panel.color;
+    ctx.fillStyle = puffColor;
+    ctx.shadowColor = puffColor;
     ctx.shadowBlur = 24;
     ctx.beginPath();
     ctx.arc(p.px, p.py, p.r, 0, Math.PI * 2);
@@ -809,13 +1109,15 @@ const cloudDrift = (r: RenderContext) => {
     }));
   });
   ctx.save();
-  ctx.fillStyle = panel.color;
   for (const b of blobs) {
     b.px += b.vx * (1 + energy * 0.5);
     if (b.px < x - 50) b.px = x + w + 50;
     if (b.px > x + w + 50) b.px = x - 50;
+    const ratioX = Math.max(0, Math.min(1, (b.px - x) / Math.max(1, w)));
+    const blobColor = pickColor(ratioX, panel.colors, panel.color);
     ctx.globalAlpha = 0.06 + energy * 0.08;
-    ctx.shadowColor = panel.color;
+    ctx.fillStyle = blobColor;
+    ctx.shadowColor = blobColor;
     ctx.shadowBlur = 30;
     ctx.beginPath();
     ctx.arc(b.px, b.py, b.r * (1 + energy * 0.2), 0, Math.PI * 2);
@@ -841,13 +1143,15 @@ const softPlasma = (r: RenderContext) => {
   });
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  for (const n of nodes) {
+  for (let nIdx = 0; nIdx < nodes.length; nIdx++) {
+    const n = nodes[nIdx];
     // gentle bobbing
     const px = n.px + Math.sin(now + n.phase) * 8;
     const py = n.py + Math.cos(now * 0.8 + n.phase) * 6;
     const r2 = n.r * (1 + energy * 0.4);
+    const nodeColor = pickColor(nIdx / Math.max(1, nodes.length - 1), panel.colors, panel.color);
     const grad = ctx.createRadialGradient(px, py, 0, px, py, r2);
-    grad.addColorStop(0, `${panel.color}`);
+    grad.addColorStop(0, nodeColor);
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
@@ -868,7 +1172,7 @@ const radarSweep = (r: RenderContext) => {
   const maxR = Math.min(w, h) / 2 - 8;
   // Background grid rings
   ctx.save();
-  ctx.strokeStyle = panel.color;
+  ctx.strokeStyle = pickColor(0.5, panel.colors, panel.color);
   ctx.globalAlpha = 0.08 + energy * 0.05;
   for (let i = 1; i <= 4; i++) {
     ctx.beginPath(); ctx.arc(cx, cy, (maxR / 4) * i, 0, Math.PI * 2); ctx.stroke();
@@ -891,7 +1195,7 @@ const radarSweep = (r: RenderContext) => {
   const sweepAngle = (now * 0.8) % (Math.PI * 2);
   const beamWidth = 0.12;
   ctx.globalCompositeOperation = 'lighter';
-  ctx.strokeStyle = panel.color;
+  ctx.strokeStyle = pickColor(0.5, panel.colors, panel.color);
   ctx.lineWidth = 2;
   ctx.globalAlpha = 0.4 + highEnergy * 0.6;
   ctx.beginPath();
@@ -910,7 +1214,8 @@ const radarSweep = (r: RenderContext) => {
     ctx.globalAlpha = Math.min(1, a);
     ctx.beginPath();
     ctx.arc(cx + dx, cy + dy, near ? 3.5 : 2.0, 0, Math.PI * 2);
-    ctx.fillStyle = panel.color;
+    const blipRatio = b.angle / (Math.PI * 2);
+    ctx.fillStyle = pickColor(blipRatio, panel.colors, panel.color);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
@@ -946,10 +1251,11 @@ const orbitalParticles = (r: RenderContext) => {
     const px = cx + Math.cos(p.angle) * p.radius;
     const py = cy + Math.sin(p.angle) * p.radius;
     const glow = 6 + fv * 24 + energy * 10;
-    ctx.shadowColor = panel.color;
+    const partColor = pickColor(ratioR, panel.colors, panel.color);
+    ctx.shadowColor = partColor;
     ctx.shadowBlur = glow;
     ctx.globalAlpha = 0.5 + fv * 0.5;
-    ctx.fillStyle = panel.color;
+    ctx.fillStyle = partColor;
     ctx.beginPath();
     ctx.arc(px, py, p.size * (1 + fv * 0.8 + energy * 0.4), 0, Math.PI * 2);
     ctx.fill();
@@ -1020,13 +1326,13 @@ export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   'pulse-circle': pulseCircle,
   'concentric-rings': concentricRings,
   'expanding-wave-rings': expandingWaveRings,
-  // Baseline for complex ones
-  'particle-field': simpleGradientSpectrum,
-  'particle-burst': simpleGradientSpectrum,
+  // Unique particle visualizers
+  'particle-field': particleFieldVisualizer,
+  'particle-burst': particleBurst,
   'floating-dots': minimalDotPulse,
   'bubble': minimalDotPulse,
   'neon-glow-wave': neonGlowWave,
-  'audio-spikes': simpleGradientSpectrum,
+  'audio-spikes': audioSpikes,
   'peak-dots': minimalDotPulse,
   'frequency-heatmap': frequencyHeatmap,
   'gradient-spectrum': simpleGradientSpectrum,
@@ -1034,8 +1340,8 @@ export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   'polygon-pulse': pulseCircle,
   'rotating-polygon': rotatingCircularBars,
   'starburst': starburst,
-  'line-mesh': simpleGradientSpectrum,
-  'particle-mesh': simpleGradientSpectrum,
+  'line-mesh': lineMesh,
+  'particle-mesh': particleMesh,
   'orbital-particles': orbitalParticles,
   'breathing-blob': pulseCircle,
   'soft-plasma': softPlasma,
@@ -1057,8 +1363,8 @@ export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   'cloud-drift': cloudDrift,
   'ocean-wave': thickWave,
   'horizon-pulse': pulseCircle,
-  'audio-landscape': skylineBars,
-  'skyline-bars': skylineBars,
+  'audio-landscape': audioLandscape,
+  'skyline-bars': skylineBarsVisualizer,
   'minimal-dot-pulse': minimalDotPulse,
   'triangular-net': triangularNet,
   'dancer-fbx': dancerFBX,

@@ -6,6 +6,10 @@ interface ThreePointsVisualizerProps {
   analyser: AnalyserNode | null;
   width?: number;
   height?: number;
+  backgroundColor?: string;
+  backgroundImageUrl?: string;
+  backgroundFit?: 'cover' | 'contain' | 'stretch';
+  backgroundOpacity?: number;
 }
 
 // Helper to generate flat disc points in concentric rings
@@ -22,7 +26,7 @@ function generateDiscPoints(rings = 32, pointsPerRing = 180, radius = 20) {
   return new Float32Array(positions);
 }
 
-const ThreePointsVisualizer: React.FC<ThreePointsVisualizerProps> = ({ analyser, width = 640, height = 480 }) => {
+const ThreePointsVisualizer: React.FC<ThreePointsVisualizerProps> = ({ analyser, width = 640, height = 480, backgroundColor, backgroundImageUrl, backgroundFit = 'cover', backgroundOpacity = 1 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const animationRef = useRef<number>();
   const positionsRef = useRef<Float32Array>();

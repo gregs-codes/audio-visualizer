@@ -67,7 +67,10 @@ interface ThreeShaderVisualizerProps {
   cameraPosition?: [number, number, number];
   cameraLookAt?: [number, number, number];
   color?: { r: number; g: number; b: number };
-  children?: React.ReactNode;
+  backgroundColor?: string;
+  backgroundImageUrl?: string;
+  backgroundFit?: 'cover' | 'contain' | 'stretch';
+  backgroundOpacity?: number;
 }
 
 const ThreeShaderVisualizer: React.FC<ThreeShaderVisualizerProps> = ({
@@ -77,7 +80,10 @@ const ThreeShaderVisualizer: React.FC<ThreeShaderVisualizerProps> = ({
   cameraPosition = [0, -2, 14],
   cameraLookAt = [0, 0, 0],
   color = { r: 1, g: 1, b: 1 },
-  children
+  backgroundColor,
+  backgroundImageUrl,
+  backgroundFit = 'cover',
+  backgroundOpacity = 1,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const animationRef = useRef<number>();
@@ -144,8 +150,22 @@ const ThreeShaderVisualizer: React.FC<ThreeShaderVisualizerProps> = ({
 
   return (
     <div style={{ position: 'relative', width, height }}>
-      <div ref={mountRef} style={{ width, height }} />
-      {children}
+      {backgroundColor && (
+        <div style={{ position: 'absolute', inset: 0, backgroundColor, opacity: backgroundOpacity, zIndex: 0 }} />
+      )}
+      {backgroundImageUrl && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          backgroundImage: `url(${backgroundImageUrl})`,
+          backgroundSize: backgroundFit === 'stretch' ? '100% 100%' : backgroundFit,
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          opacity: backgroundOpacity,
+          zIndex: 0,
+        }} />
+      )}
+      <div ref={mountRef} style={{ width, height, position: 'relative', zIndex: 1 }} />
     </div>
   );
 };

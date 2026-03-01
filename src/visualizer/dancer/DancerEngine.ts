@@ -199,8 +199,9 @@ export async function renderDancer(
     let highEnergy = 0; for (let i = freq.length - highBins; i < freq.length; i++) highEnergy += freq[i];
     highEnergy = highEnergy / (255 * Math.max(1, highBins));
     const timeScale = isPlaying ? (1 + Math.min(0.2, energy * 0.15 + (highEnergy > 0.7 ? 0.05 : 0))) : 0;
-    if (eng.currentAction) eng.currentAction.setEffectiveTimeScale(timeScale);
-    // Always advance mixer; timeScale gates animation speed elsewhere
+    // Set mixer timeScale to pause animation when audio is paused
+    eng.mixer.timeScale = timeScale;
+    // Always advance mixer; timeScale gates animation speed
     (eng.mixer as THREE.AnimationMixer).update(delta);
     // Ensure idle never drops to zero weight
     if (eng.idleAction) {

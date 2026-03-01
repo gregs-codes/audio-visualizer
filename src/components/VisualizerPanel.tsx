@@ -1,13 +1,13 @@
 import ThreeShaderVisualizer from '../visualizer/ThreeShaderVisualizer';
 import ThreeRippleVisualizer from '../visualizer/ThreeRippleVisualizer';
 import BeastShaderCanvas from '../visualizer/BeastShaderCanvas';
-import { DancerPreview } from '../visualizer/dancer/DancerPreview';
-import VUMeters from '../visualizer/VUMeters';
 import ThreePointsVisualizer from '../visualizer/ThreePointsVisualizer';
 import React from 'react';
 import { GridVisualizerCanvas } from '../visualizer/GridVisualizerCanvas';
 import VisualizerCanvasWithTriangles from '../visualizer/VisualizerCanvasWithTriangles';
 import ThreeAudioVisualizer from '../visualizer/ThreeAudioVisualizer';
+import HexagonVisualizer from '../visualizer/HexagonVisualizer';
+import VisualizerOverlays from './VisualizerOverlays';
 import type { LayoutMode } from '../visualizer/GridVisualizerCanvas';
 
 interface VisualizerPanelProps {
@@ -79,116 +79,149 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
   canvasRef,
   exportCanvasRef,
 }) => {
+  // Determine the actual mode being used
+  const mode = panels[0]?.mode;
+  
+  // Common props for all visualizers
+  const commonProps = {
+    analyser: analyserNode,
+    width: previewSize.w,
+    height: previewSize.h,
+    backgroundColor: bgMode === 'color' ? bgColor : undefined,
+    backgroundImageUrl: bgMode === 'image' ? bgImageUrl : undefined,
+    backgroundFit: bgFit,
+    backgroundOpacity: bgOpacity,
+  };
+
+  const overlayProps = {
+    width: previewSize.w,
+    height: previewSize.h,
+    analyser: analyserNode,
+    audioEl: audioEl,
+    showDancer: showDancer,
+    dancerPos: dancerPos,
+    dancerSize: dancerSize,
+    dancerOverlaySources: dancerOverlaySources,
+    title: title,
+    titlePos: titlePos,
+    titleColor: titleColor,
+    titleFx: titleFx,
+    desc: desc,
+    descPos: descPos,
+    descColor: descColor,
+    descFx: descFx,
+    countPos: countPos,
+    countColor: countColor,
+    countFx: countFx,
+    exportPhase: exportPhase,
+    stereo: stereo ? { left: stereo.left, right: stereo.right } : null,
+    vuColor: color,
+    vuPos: countPos, // Use countPos for VU meters like GridVisualizerCanvas does
+  };
+
+  // Color conversion helper for WebGL visualizers
+  const hexToRgb = (hex: string) => ({
+    r: typeof hex === 'string' ? parseInt(hex.slice(1, 3), 16) / 255 : 1,
+    g: typeof hex === 'string' ? parseInt(hex.slice(3, 5), 16) / 255 : 1,
+    b: typeof hex === 'string' ? parseInt(hex.slice(5, 7), 16) / 255 : 1,
+  });
+
+  // Render visualizer based on mode
+  const renderVisualizer = () => {
+    switch (mode) {
+      case 'hexagon-visualizer':
+        return (
+          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
+            <HexagonVisualizer {...commonProps} />
+            <VisualizerOverlays {...overlayProps} panelKey="hexagon" />
+          </div>
+        );
+
+      case 'triangles-bars':
+        return (
+          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
+            <VisualizerCanvasWithTriangles {...commonProps} />
+            <VisualizerOverlays {...overlayProps} panelKey="triangles" />
+          </div>
+        );
+
+      case 'threejs-3d':
+        return (
+          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
+            <ThreeAudioVisualizer {...commonProps} />
+            <VisualizerOverlays {...overlayProps} panelKey="threejs-3d" />
+          </div>
+        );
+
+      case 'threejs-points':
+        return (
+          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
+            <ThreePointsVisualizer {...commonProps} />
+            <VisualizerOverlays {...overlayProps} panelKey="threejs-points" />
+          </div>
+        );
+
+      case 'threejs-shader':
+        return (
+          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
+            <ThreeShaderVisualizer
+              {...commonProps}
+              cameraPosition={dancerOverlaySources?.cameraPosition ?? [0, -2, 14]}
+              cameraLookAt={dancerOverlaySources?.cameraLookAt ?? [0, 0, 0]}
+              color={hexToRgb(color)}
+            />
+            <VisualizerOverlays {...overlayProps} panelKey="shader" />
+          </div>
+        );
+
+      case 'threejs-ripples':
+        return (
+          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
+            <ThreeRippleVisualizer {...commonProps} color={hexToRgb(color)} />
+            <VisualizerOverlays {...overlayProps} panelKey="ripples" />
+          </div>
+        );
+
+      case 'beast-shader-canvas':
+        return (
+          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
+            <BeastShaderCanvas {...commonProps} color={hexToRgb(color)} />
+            <VisualizerOverlays {...overlayProps} panelKey="beast" />
+          </div>
+        );
+
+      default:
+        // GridVisualizerCanvas handles its own overlays internally
+        return (
+          <GridVisualizerCanvas
+            ref={canvasRef}
+            analyser={analyserNode}
+            analysers={analysers}
+            layout={layout}
+            panels={panels}
+            width={previewSize.w}
+            height={previewSize.h}
+            audio={audioEl}
+            backgroundColor={bgMode === 'color' ? bgColor : undefined}
+            backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
+            backgroundFit={bgFit}
+            backgroundOpacity={bgOpacity}
+            bgMode={bgMode}
+            instanceKey={'preview'}
+            overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
+            overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
+            overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
+            overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
+            overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
+            exportPhase={exportPhase}
+          />
+        );
+    }
+  };
+
   return (
     <>
-      {panels[0]?.mode === 'triangles-bars' ? (
-        <VisualizerCanvasWithTriangles
-          analyser={analyserNode}
-          backgroundUrl={bgMode === 'image' ? bgImageUrl : undefined}
-          backgroundType={bgMode === 'image' ? 'image' : undefined}
-          backgroundFit={bgFit}
-        />
-      ) : panels[0]?.mode === 'threejs-3d' ? (
-        <ThreeAudioVisualizer
-          analyser={analyserNode}
-          width={previewSize.w}
-          height={previewSize.h}
-        />
-      ) : panels[0]?.mode === 'threejs-points' ? (
-        <ThreePointsVisualizer
-          analyser={analyserNode}
-          width={previewSize.w}
-          height={previewSize.h}
-        />
-      ) : panels[0]?.mode === 'threejs-shader' ? (
-        <ThreeShaderVisualizer
-          analyser={analyserNode}
-          width={previewSize.w}
-          height={previewSize.h}
-          cameraPosition={dancerOverlaySources?.cameraPosition ?? [0, -2, 14]}
-          cameraLookAt={dancerOverlaySources?.cameraLookAt ?? [0, 0, 0]}
-          color={{
-            r: typeof color === 'string' ? parseInt(color.slice(1, 3), 16) / 255 : 1,
-            g: typeof color === 'string' ? parseInt(color.slice(3, 5), 16) / 255 : 1,
-            b: typeof color === 'string' ? parseInt(color.slice(5, 7), 16) / 255 : 1,
-          }}
-        >
-          {/* Overlays */}
-          {showDancer && (
-            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, top: 0, pointerEvents: 'none' }}>
-              <DancerPreview
-                sources={dancerOverlaySources}
-                analyser={analyserNode}
-                width={Math.round(previewSize.w * 0.5)}
-                height={Math.round(previewSize.h * 0.5)}
-                panelKey="shader"
-              />
-            </div>
-          )}
-          {/* Text overlays */}
-          {title && (
-            <div style={{ position: 'absolute', top: 24, left: 0, right: 0, textAlign: 'center', color: titleColor, fontSize: 32, fontWeight: 600, textShadow: '0 2px 8px #000' }}>{title}</div>
-          )}
-          {desc && (
-            <div style={{ position: 'absolute', top: 64, left: 0, right: 0, textAlign: 'center', color: descColor, fontSize: 20, fontWeight: 400, textShadow: '0 2px 8px #000' }}>{desc}</div>
-          )}
-          {/* Countdown overlay */}
-          {exportPhase === 'intro' && (
-            <div style={{ position: 'absolute', top: 120, left: 0, right: 0, textAlign: 'center', color: countColor, fontSize: 28, fontWeight: 700, textShadow: '0 2px 8px #000' }}>Starting...</div>
-          )}
-          {/* VU meters overlay */}
-          {stereo && (
-            <div style={{ position: 'absolute', right: 24, top: 24 }}>
-              <VUMeters left={stereo.left} right={stereo.right} accentColor={color} orientation="vertical" />
-            </div>
-          )}
-        </ThreeShaderVisualizer>
-      ) : panels[0]?.mode === 'threejs-ripples' ? (
-        <ThreeRippleVisualizer
-          analyser={analyserNode}
-          width={previewSize.w}
-          height={previewSize.h}
-          color={{
-            r: typeof color === 'string' ? parseInt(color.slice(1, 3), 16) / 255 : 1,
-            g: typeof color === 'string' ? parseInt(color.slice(3, 5), 16) / 255 : 1,
-            b: typeof color === 'string' ? parseInt(color.slice(5, 7), 16) / 255 : 1,
-          }}
-        />
-      ) : panels[0]?.mode === 'beast-shader-canvas' ? (
-        <BeastShaderCanvas
-          analyser={analyserNode}
-          width={previewSize.w}
-          height={previewSize.h}
-          color={{
-            r: typeof color === 'string' ? parseInt(color.slice(1, 3), 16) / 255 : 1,
-            g: typeof color === 'string' ? parseInt(color.slice(3, 5), 16) / 255 : 1,
-            b: typeof color === 'string' ? parseInt(color.slice(5, 7), 16) / 255 : 1,
-          }}
-        />
-      ) : (
-        <GridVisualizerCanvas
-          ref={canvasRef}
-          analyser={analyserNode}
-          analysers={analysers}
-          layout={layout}
-          panels={panels}
-          width={previewSize.w}
-          height={previewSize.h}
-          audio={audioEl}
-          backgroundColor={bgMode === 'color' ? bgColor : undefined}
-          backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
-          backgroundFit={bgFit}
-          backgroundOpacity={bgOpacity}
-          bgMode={bgMode}
-          instanceKey={'preview'}
-          overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
-          overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
-          overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
-          overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
-          overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
-          exportPhase={exportPhase}
-        />
-      )}
+      {renderVisualizer()}
       <div style={{ position: 'absolute', left: -9999, top: -9999, width: 1, height: 1, overflow: 'hidden' }}>
         <GridVisualizerCanvas
           ref={exportCanvasRef}

@@ -62,8 +62,8 @@ export async function renderHighGfxRingsTrailsWithFeatures(
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' , preserveDrawingBuffer: true});
     renderer.setPixelRatio(1); renderer.setSize(W, H, false); renderer.setClearColor(0x000000, 0);
     const scene = new THREE.Scene(); scene.background = null; scene.fog = undefined;
-    const camera = new THREE.PerspectiveCamera(45, W / H, 0.1, 100);
-    camera.position.set(0, 0, 6);
+    const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 100);
+    camera.position.set(0, 1.0, 8);
     camera.lookAt(new THREE.Vector3(0, 0, 0));
     const composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera));
     const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 0.8, 0.6, 0.85); composer.addPass(bloom);
@@ -96,10 +96,14 @@ export async function renderHighGfxRingsTrailsWithFeatures(
   // View tilt
   const view = opts?.view ?? 'top';
   if (view === 'top') {
-    eng.camera.position.set(0, 0, 6);
+    eng.camera.position.set(0, 1.0, 8);
+    eng.camera.fov = 55;
   } else {
-    eng.camera.position.set(0.8, 0.4, 6.2);
+    eng.camera.position.set(4, 1, 6);
+    eng.camera.fov = 55;
   }
+  eng.camera.lookAt(new THREE.Vector3(0, 0, 0));
+  eng.camera.updateProjectionMatrix();
   // Mouse parallax (subtle)
   const mx = (opts?.mouse?.x ?? 0.5) - 0.5;
   const my = (opts?.mouse?.y ?? 0.5) - 0.5;
