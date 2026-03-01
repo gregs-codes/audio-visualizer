@@ -1,6 +1,5 @@
 import ThreeShaderVisualizer from '../visualizer/ThreeShaderVisualizer';
 import ThreeRippleVisualizer from '../visualizer/ThreeRippleVisualizer';
-import BeastShaderCanvas from '../visualizer/BeastShaderCanvas';
 import ThreePointsVisualizer from '../visualizer/ThreePointsVisualizer';
 import React from 'react';
 import { GridVisualizerCanvas } from '../visualizer/GridVisualizerCanvas';
@@ -179,14 +178,6 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
           <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
             <ThreeRippleVisualizer {...commonProps} color={hexToRgb(color)} />
             <VisualizerOverlays {...overlayProps} panelKey="ripples" />
-          </div>
-        );
-
-      case 'beast-shader-canvas':
-        return (
-          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
-            <BeastShaderCanvas {...commonProps} color={hexToRgb(color)} />
-            <VisualizerOverlays {...overlayProps} panelKey="beast" />
           </div>
         );
 

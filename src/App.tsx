@@ -14,7 +14,7 @@ import type { VisualizerMode, FrequencyBand } from './visualizer/visualizerModes
 import type { DancerSources } from './visualizer/dancer/DancerEngine';
 import { ANIMATION_FILES } from './visualizer/dancer/animations';
 import { CHARACTER_FILES } from './visualizer/dancer/characters';
-import { VISUALIZER_MODES, LABELS } from './visualizer/visualizers';
+import { VISUALIZER_MODES, LABELS, VISUALIZER_CATEGORIES } from './visualizer/visualizers';
 
 const CUSTOM_MODES = [
 	{ key: 'triangles-bars', label: 'Triangles + Bars' },
@@ -22,8 +22,13 @@ const CUSTOM_MODES = [
 	{ key: 'threejs-points', label: '3D Points Sphere' },
 	{ key: 'threejs-shader', label: 'Shader Beast Visualizer' },
 	{ key: 'threejs-ripples', label: 'Water Ripples Visualizer' },
-	{ key: 'beast-shader-canvas', label: 'Beast Shader Canvas (Pure WebGL)' },
 ];
+
+// Add Three.js visualizers to categories
+const EXTENDED_CATEGORIES = {
+	...VISUALIZER_CATEGORIES,
+	'Three.js (3D)': CUSTOM_MODES.map(m => m.key),
+};
 import type { LayoutMode } from './visualizer/GridVisualizerCanvas';
 import { useCanvasRecorder } from './recorder/useCanvasRecorder';
 
@@ -623,7 +628,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				toggleSection={toggleSection}
 				panels={panels}
 				setPanels={setPanels}
-				VISUALIZER_MODES={VISUALIZER_MODES}
+				VISUALIZER_CATEGORIES={EXTENDED_CATEGORIES}
 				LABELS={LABELS}
 				CUSTOM_MODES={CUSTOM_MODES}
 				defaultPanelColors={defaultPanelColors}
