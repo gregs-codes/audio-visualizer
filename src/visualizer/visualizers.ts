@@ -44,6 +44,9 @@ export const VISUALIZER_CATEGORIES = {
     'thick-wave',
     'dual-wave',
     'gradient-spectrum',
+    'smooth-gradient-bars',
+    'layered-smooth-waves',
+    'smooth-dotted-wave',
   ],
   'Circular & Radial': [
     'circular-bars',
@@ -52,6 +55,7 @@ export const VISUALIZER_CATEGORIES = {
     'pulse-circle',
     'concentric-rings',
     'expanding-wave-rings',
+    'smooth-concentric-equalizer',
   ],
   'Particles & Dots': [
     'particle-field',
@@ -63,6 +67,7 @@ export const VISUALIZER_CATEGORIES = {
   'Geometric Shapes': [
     'polygon-pulse',
     'starburst',
+    'smooth-blob-morph',
   ],
   'Advanced Effects': [
     'neon-glow-wave',
@@ -128,8 +133,13 @@ export const LABELS: Record<string, string> = {
   'neon-glow-wave': 'Neon Glow Wave',
   'frequency-heatmap': 'Frequency Heatmap',
   'gradient-spectrum': 'Gradient Spectrum',
+  'smooth-gradient-bars': 'Smooth Gradient Bars',
+  'layered-smooth-waves': 'Layered Smooth Waves',
+  'smooth-dotted-wave': 'Smooth Dotted Wave',
   'polygon-pulse': 'Polygon Pulse',
   'starburst': 'Starburst',
+  'smooth-blob-morph': 'Smooth Blob Morph',
+  'smooth-concentric-equalizer': 'Smooth Concentric Equalizer',
   'line-mesh': 'Line Mesh',
   'particle-mesh': 'Particle Mesh',
   'orbital-particles': 'Orbital Particles',
@@ -1362,6 +1372,195 @@ const orbitalParticles = (r: RenderContext) => {
   ctx.restore();
 };
 
+// Smooth Gradient Bars: vertical bars with smooth gradients and glow (optimized)
+const smoothGradientBars = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const bars = Math.min(64, Math.max(32, Math.floor(w / 16)));
+  const barW = w / bars;
+  
+  ctx.save();
+  ctx.lineCap = 'round';
+  
+  for (let i = 0; i < bars; i++) {
+    const idx = Math.floor((i / bars) * freq.length);
+    const v = freq[idx] / 255;
+    const barH = v * h * (0.7 + energy * 0.3);
+    const ratio = idx / freq.length;
+    const color = pickColor(ratio, panel.colors, panel.color);
+    
+    ctx.globalAlpha = 0.8 + v * 0.2;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(2, barW - 2);
+    
+    const bx = x + i * barW + barW / 2;
+    ctx.beginPath();
+    ctx.moveTo(bx, y + h);
+    ctx.lineTo(bx, y + h - barH);
+    ctx.stroke();
+  }
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Layered Smooth Waves: overlapping waveforms (optimized)
+const layeredSmoothWaves = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, time, energy } = r;
+  const layers = 2;
+  
+  ctx.save();
+  ctx.lineWidth = 2;
+  
+  for (let layer = 0; layer < layers; layer++) {
+    const offset = (layer / layers) * 0.3;
+    const layerRatio = layer / (layers - 1);
+    const color = pickColor(layerRatio, panel.colors, panel.color);
+    
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.5 + energy * 0.3;
+    
+    ctx.beginPath();
+    for (let i = 0; i < time.length; i++) {
+      const v = (time[i] / 255) - 0.5 + offset;
+      const px = x + (i / time.length) * w;
+      const py = y + h / 2 + v * h * (0.4 - layer * 0.1);
+      
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Smooth Dotted Wave: waveform made of dots (optimized)
+const smoothDottedWave = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, time, energy } = r;
+  const dots = Math.min(96, Math.max(48, Math.floor(w / 6)));
+  
+  ctx.save();
+  
+  for (let i = 0; i < dots; i++) {
+    const srcIdx = Math.floor((i / dots) * time.length);
+    const v = time[srcIdx] / 255;
+    const px = x + (i / dots) * w;
+    const py = y + (1 - v) * h;
+    const ratio = srcIdx / time.length;
+    const color = pickColor(ratio, panel.colors, panel.color);
+    
+    const dotSize = 2 + v * 3;
+    
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.7 + v * 0.3;
+    
+    ctx.beginPath();
+    ctx.arc(px, py, dotSize, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Smooth Blob Morph: organic blob shape (optimized)
+const smoothBlobMorph = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const baseR = Math.min(w, h) / 4;
+  const points = 24;
+  
+  ctx.save();
+  ctx.lineWidth = 2;
+  
+  ctx.beginPath();
+  for (let i = 0; i <= points; i++) {
+    const idx = Math.floor((i / points) * freq.length);
+    const v = freq[idx] / 255;
+    const angle = (i / points) * Math.PI * 2;
+    
+    const R = baseR * (1 + v * 0.5 + energy * 0.2);
+    const px = cx + Math.cos(angle) * R;
+    const py = cy + Math.sin(angle) * R;
+    
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  
+  const color = pickColor(0.5, panel.colors, panel.color);
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.8;
+  ctx.stroke();
+  
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.2 + energy * 0.2;
+  ctx.fill();
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Smooth Concentric Equalizer: rings with dots (optimized)
+const smoothConcentricEqualizer = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const baseSize = Math.min(w, h);
+  const rings = 3;
+  const dotsPerRing = 64;
+  
+  ctx.save();
+  
+  for (let ring = 0; ring < rings; ring++) {
+    const ringRadius = (baseSize / 10) * (ring + 1.5) * (1 + energy * 0.1);
+    const ringRatio = ring / (rings - 1);
+    const ringColor = pickColor(ringRatio, panel.colors, panel.color);
+    
+    // Draw ring outline
+    ctx.strokeStyle = ringColor;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Draw dots
+    ctx.globalAlpha = 0.8;
+    for (let i = 0; i < dotsPerRing; i++) {
+      const angle = (i / dotsPerRing) * Math.PI * 2;
+      const idx = Math.floor((i / dotsPerRing) * freq.length);
+      const v = freq[idx] / 255;
+      const ratio = idx / freq.length;
+      
+      const dotSize = 1.5 + v * 2;
+      const px = cx + Math.cos(angle) * ringRadius;
+      const py = cy + Math.sin(angle) * ringRadius;
+      const color = pickColor(ratio, panel.colors, panel.color);
+      
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.6 + v * 0.4;
+      
+      ctx.beginPath();
+      ctx.arc(px, py, dotSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  
+  // Center circle
+  const centerColor = panel.colors ? panel.colors.mid : panel.color;
+  ctx.fillStyle = centerColor;
+  ctx.globalAlpha = 0.5 + energy * 0.3;
+  ctx.beginPath();
+  ctx.arc(cx, cy, (baseSize / 15) * (1 + energy * 0.2), 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
 // Registry mapping
 export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   // Core
@@ -1423,6 +1622,11 @@ export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   'pulse-circle': pulseCircle,
   'concentric-rings': concentricRings,
   'expanding-wave-rings': expandingWaveRings,
+  'smooth-gradient-bars': smoothGradientBars,
+  'layered-smooth-waves': layeredSmoothWaves,
+  'smooth-dotted-wave': smoothDottedWave,
+  'smooth-blob-morph': smoothBlobMorph,
+  'smooth-concentric-equalizer': smoothConcentricEqualizer,
   // Unique particle visualizers
   'particle-field': particleFieldVisualizer,
   'particle-burst': particleBurst,

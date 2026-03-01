@@ -17,11 +17,8 @@ import { CHARACTER_FILES } from './visualizer/dancer/characters';
 import { VISUALIZER_MODES, LABELS, VISUALIZER_CATEGORIES } from './visualizer/visualizers';
 
 const CUSTOM_MODES = [
-	{ key: 'triangles-bars', label: 'Triangles + Bars' },
 	{ key: 'threejs-3d', label: '3D Three.js Visualizer' },
-	{ key: 'threejs-points', label: '3D Points Sphere' },
 	{ key: 'threejs-shader', label: 'Shader Beast Visualizer' },
-	{ key: 'threejs-ripples', label: 'Water Ripples Visualizer' },
 ];
 
 // Add Three.js visualizers to categories
