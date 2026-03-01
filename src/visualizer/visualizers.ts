@@ -1566,8 +1566,13 @@ const smoothConcentricEqualizer = (r: RenderContext) => {
 // ── Dot Matrix 3D Equalizer ──────────────────────────────────────────────────
 // Replicates a perspective LED dot-matrix equalizer board: dots arranged in a
 // grid that compresses toward the right (1-point perspective). Active dots at
-// the top of each column glow green; inactive dots are dark charcoal.
-const dotMatrix3D = ({ ctx, x, y, w, h, freq }: RenderContext) => {
+// the top of each column glow; inactive dots are dark charcoal.
+const dotMatrix3D = ({ ctx, x, y, w, h, freq, panel }: RenderContext) => {
+  // Parse panel color into RGB components for active dot tinting
+  const hex = (panel?.color ?? '#22dd44').replace('#', '');
+  const pr = parseInt(hex.slice(0, 2), 16);
+  const pg = parseInt(hex.slice(2, 4), 16);
+  const pb = parseInt(hex.slice(4, 6), 16);
   ctx.save();
   ctx.fillStyle = '#000';
   ctx.fillRect(x, y, w, h);
@@ -1615,13 +1620,15 @@ const dotMatrix3D = ({ ctx, x, y, w, h, freq }: RenderContext) => {
       if (isActive) {
         // Brightness fades from top (brightest) to the amplitude boundary
         const fade = activeDots > 0 ? (activeDots - r) / activeDots : 0;
-        const g = Math.round(160 + fade * 95);
         const alpha = 0.55 + fade * 0.45;
-        ctx.fillStyle = `rgba(18,${g},40,${alpha})`;
+        const dr = Math.round(pr * (0.15 + fade * 0.85));
+        const dg = Math.round(pg * (0.55 + fade * 0.45));
+        const db = Math.round(pb * (0.15 + fade * 0.85));
+        ctx.fillStyle = `rgba(${dr},${dg},${db},${alpha})`;
         // Subtle glow only on the top-most 2 active dots for performance
         if (r < 2 && dotR > 2) {
           ctx.shadowBlur = dotR * 2.5;
-          ctx.shadowColor = '#22dd55';
+          ctx.shadowColor = panel?.color ?? '#22dd55';
         } else {
           ctx.shadowBlur = 0;
         }
@@ -1635,12 +1642,12 @@ const dotMatrix3D = ({ ctx, x, y, w, h, freq }: RenderContext) => {
     }
   }
 
-  // Subtle floor reflection: a horizontal gradient line at bottom of grid
+  // Subtle floor reflection using panel color
   const floorY = gridCY + (ROWS / 2) * maxRowH * scales[0] + 4;
   const grad = ctx.createLinearGradient(x, floorY, x + w, floorY);
-  grad.addColorStop(0, 'rgba(10,200,50,0.18)');
-  grad.addColorStop(0.4, 'rgba(10,200,50,0.06)');
-  grad.addColorStop(1, 'rgba(10,200,50,0.01)');
+  grad.addColorStop(0, `rgba(${pr},${pg},${pb},0.18)`);
+  grad.addColorStop(0.4, `rgba(${pr},${pg},${pb},0.06)`);
+  grad.addColorStop(1, `rgba(${pr},${pg},${pb},0.01)`);
   ctx.fillStyle = grad;
   ctx.fillRect(x, floorY, w, 2);
 

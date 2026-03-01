@@ -37,7 +37,7 @@ export function PanelsSettings({ openSections, toggleSection, panels, setPanels,
       {openSections.panels && (
         <div className="section-body">
           {panels.map((p, i) => (
-            <div key={i} style={{ display: 'grid', gap: 6, marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+            <div key={i} style={{ display: 'grid', gap: 6, marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--panelBorder)' }}>
               <div className="field-label">Panel {i + 1}</div>
               
               {/* Category selector */}
@@ -47,12 +47,12 @@ export function PanelsSettings({ openSections, toggleSection, panels, setPanels,
                   const currentModeInCategory = modes.includes(p.mode as any);
                   
                   return (
-                    <div key={category} style={{ border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
+                    <div key={category} style={{ border: '1px solid var(--panelBorderBright)', borderRadius: 4, overflow: 'hidden' }}>
                       <div
                         onClick={() => toggleCategory(i, category)}
                         style={{
                           padding: '6px 10px',
-                          background: currentModeInCategory ? 'rgba(100,150,255,0.2)' : 'rgba(255,255,255,0.05)',
+                          background: currentModeInCategory ? 'color-mix(in srgb, var(--accent2) 18%, transparent)' : 'var(--panel)',
                           cursor: 'pointer',
                           display: 'flex',
                           justifyContent: 'space-between',
@@ -66,7 +66,7 @@ export function PanelsSettings({ openSections, toggleSection, panels, setPanels,
                       </div>
                       
                       {isExpanded && (
-                        <div style={{ padding: '4px', background: 'rgba(0,0,0,0.3)' }}>
+                        <div style={{ padding: '4px', background: 'color-mix(in srgb, var(--panel-solid) 60%, transparent)' }}>
                           {modes.map((mode) => (
                             <div
                               key={mode}
@@ -76,7 +76,8 @@ export function PanelsSettings({ openSections, toggleSection, panels, setPanels,
                               style={{
                                 padding: '6px 10px',
                                 cursor: 'pointer',
-                                background: p.mode === mode ? 'rgba(100,150,255,0.4)' : 'transparent',
+                                background: p.mode === mode ? 'color-mix(in srgb, var(--accent2) 35%, transparent)' : 'transparent',
+                              color: 'var(--fg)',
                                 borderRadius: 3,
                                 fontSize: '12px',
                                 marginBottom: 2,

@@ -1,7 +1,7 @@
 /* ── Design tokens ── */
 
 :root {
-  --bg: #0a0c12;
+  --bg: #13141f;
   --fg: #e2e4ef;
   --muted: #5a5d78;
   --accent: #00e5a0;
@@ -513,14 +513,20 @@ select:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px r
   --panel-solid: #fff;
   --panelBorder: rgba(0,0,0,0.08);
   --panelBorderBright: rgba(0,0,0,0.14);
-  --glass-bg: rgba(248,250,255,0.78);
+  --glass-bg: rgba(248,250,255,0.88);
   --glass-border: rgba(0,0,0,0.07);
   --shadow: 0 8px 32px rgba(0,0,0,0.12);
+  color-scheme: light;
 }
-body[data-theme='light'], [data-theme='light'] body {
+/* When data-theme is on <html>, body picks up the vars too */
+[data-theme='light'] body {
   background: linear-gradient(135deg, #f2f3f7 60%, #e8eaf0 100%);
+  color: var(--fg);
 }
 [data-theme='light'] .viz-glow { filter: blur(100px) brightness(1.2); opacity: 0.12; }
+[data-theme='light'] .section-header { color: var(--muted); }
+[data-theme='light'] button { color: var(--fg); }
+[data-theme='light'] select, [data-theme='light'] input { color: var(--fg); background: rgba(0,0,0,0.04); border-color: var(--panelBorder); }
 
 /* ── Neon theme ── */
 [data-theme='neon'] {

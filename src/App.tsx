@@ -93,6 +93,8 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [volume, setVolume] = useState<number>(80);
 	const [canvasScale, setCanvasScale] = useState<number>(100); // percent 40–200
 	const wrapRef = useRef<HTMLDivElement | null>(null);
+	const canvasAreaRef = useRef<HTMLDivElement | null>(null);
+	const [availWidth, setAvailWidth] = useState<number>(9999);
 
 	// Intro/Outro duration (seconds) — visible in UI
 	const [introSecs, setIntroSecs] = useState<number>(4);
@@ -250,6 +252,26 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 		// 9:16 portrait: swap dimensions
 		return { w: h, h: w };
 	}, [aspect, res]);
+
+	// Measure available canvas area width for auto-fit on window/panel resize
+	useEffect(() => {
+		const el = canvasAreaRef.current;
+		if (!el) return;
+		const ro = new ResizeObserver(entries => {
+			setAvailWidth(entries[0]?.contentRect.width ?? el.clientWidth);
+		});
+		ro.observe(el);
+		setAvailWidth(el.clientWidth);
+		return () => ro.disconnect();
+	}, []);
+
+	// Sync theme to document root so body background/colors follow active theme
+	useEffect(() => {
+		document.documentElement.setAttribute('data-theme', theme);
+	}, [theme]);
+
+	// Effective display scale: respect user's canvasScale but clamp to fit container
+	const displayScale = Math.min(canvasScale / 100, availWidth > 4 ? (availWidth - 4) / previewSize.w : 1);
 
 	// Auto-export when launched with query params from server-side renderer.
 	// Expected params: autoExport=1, audio=<url>, aspect, res, fps, codec, vBitrate, aBitrate, mode, theme
@@ -874,6 +896,8 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				progress={progress}
 			/>
 
+				{/* Canvas area — measured for responsive auto-fit */}
+				<div ref={canvasAreaRef} style={{ width: '100%' }}>
 				{/* Canvas resize handle */}
 				<div className="canvas-resize-row">
 					<span className="canvas-resize-label">Canvas Size</span>
@@ -881,10 +905,17 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 						onChange={e => setCanvasScale(Number(e.target.value))}
 						className="canvas-resize-slider"
 					/>
-					<span className="canvas-resize-val">{canvasScale}%</span>
+					<span className="canvas-resize-val">{Math.round(displayScale * 100)}%</span>
 				</div>
 				<div className="glassy-panel overlay-controls" ref={wrapRef}
-					style={{ position: 'relative', maxWidth: `${canvasScale}%`, margin: '0 auto', cursor: ready ? 'pointer' : 'default' }}
+					style={{
+						position: 'relative',
+						width: Math.round(previewSize.w * displayScale),
+						height: Math.round(previewSize.h * displayScale),
+						margin: '0 auto',
+						overflow: 'hidden',
+						cursor: ready ? 'pointer' : 'default',
+					}}
 					onClick={() => {
 						const a = audioRef.current;
 						if (!a || !ready) return;
@@ -894,45 +925,54 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 					{/* Only show overlays in the correct position, no duplicate title/timer. */}
 					{ready && analyserNode && (
 						<>
-							<VisualizerPanel
-								analyserNode={analyserNode}
-								analysers={analysers}
-								layout={layout}
-								panels={panels}
-								previewSize={previewSize}
-								effectiveSize={effectiveSize}
-								audioEl={audioEl}
-								bgMode={bgMode as 'none'|'color'|'image'|'parallax'|undefined}
-								bgColor={bgColor}
-								bgImageUrl={bgImageUrl}
-								bgFit={bgFit as 'cover'|'contain'|'stretch'|undefined}
-								bgOpacity={bgOpacity}
-								title={title}
-								titlePos={titlePos}
-								titleColor={titleColor}
-								titleFx={titleFx}
-								desc={desc}
-								descPos={descPos}
-								descColor={descColor}
-								descFx={descFx}
-								countPos={countPos}
-								countColor={countColor}
-								countFx={countFx}
-								showDancer={showDancer}
-								dancerPos={dancerPos}
-								dancerSize={dancerSize}
-								dancerOverlaySources={dancerOverlaySources}
-								stereo={stereo}
-								color={color}
-								exportPhase={exportPhase}
-								canvasRef={canvasRef}
-								exportCanvasRef={exportCanvasRef}
-							/>
-							{/* Fullscreen toggle */}
+							{/* Scale inner content to fit the resized canvas wrapper */}
+							<div style={{
+								transformOrigin: 'top left',
+							transform: `scale(${displayScale})`,
+								width: previewSize.w,
+								height: previewSize.h,
+							}}>
+								<VisualizerPanel
+									analyserNode={analyserNode}
+									analysers={analysers}
+									layout={layout}
+									panels={panels}
+									previewSize={previewSize}
+									effectiveSize={effectiveSize}
+									audioEl={audioEl}
+									bgMode={bgMode as 'none'|'color'|'image'|'parallax'|undefined}
+									bgColor={bgColor}
+									bgImageUrl={bgImageUrl}
+									bgFit={bgFit as 'cover'|'contain'|'stretch'|undefined}
+									bgOpacity={bgOpacity}
+									title={title}
+									titlePos={titlePos}
+									titleColor={titleColor}
+									titleFx={titleFx}
+									desc={desc}
+									descPos={descPos}
+									descColor={descColor}
+									descFx={descFx}
+									countPos={countPos}
+									countColor={countColor}
+									countFx={countFx}
+									showDancer={showDancer}
+									dancerPos={dancerPos}
+									dancerSize={dancerSize}
+									dancerOverlaySources={dancerOverlaySources}
+									stereo={stereo}
+									color={color}
+									exportPhase={exportPhase}
+									canvasRef={canvasRef}
+									exportCanvasRef={exportCanvasRef}
+								/>
+							</div>
+							{/* Fullscreen toggle — outside scaled div so it stays at corner */}
 							<button
 								className="icon-btn fullscreen"
 								aria-label="Toggle Fullscreen"
-								onClick={() => {
+								onClick={(e) => {
+									e.stopPropagation();
 									const el = wrapRef.current; if (!el) return;
 									if (!document.fullscreenElement) el.requestFullscreen?.(); else document.exitFullscreen?.();
 								}}
@@ -940,6 +980,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 						</>
 					)}
 				</div>
+				</div>{/* /canvasAreaRef */}
 		</div>
 	</>);
 }
