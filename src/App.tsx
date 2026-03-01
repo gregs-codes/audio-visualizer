@@ -30,7 +30,7 @@ import type { LayoutMode } from './visualizer/GridVisualizerCanvas';
 import { useCanvasRecorder } from './recorder/useCanvasRecorder';
 
 export default function App() {
-	const { audioRef, init, getAudioStream, getBandAnalyser, getStereoAnalysers, setPlaybackMuted } = useAudioAnalyzer();
+	const { audioRef, init, getAudioStream, getBandAnalyser, getStereoAnalysers, setPlaybackMuted, setPlaybackVolume } = useAudioAnalyzer();
 	const [showSettings, setShowSettings] = useState(true);
 		const [mode, setMode] = useState<VisualizerMode | 'triangles-bars'>('vertical-bars');
 // Add state for server URL
@@ -90,7 +90,8 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [exportPhase, setExportPhase] = useState<'intro' | 'playing' | 'outro' | undefined>(undefined);
 	const [isPlaying, setIsPlaying] = useState<boolean>(false);
 	const [progress, setProgress] = useState<number>(0); // 0..1
-	const [volume] = useState<number>(80);
+	const [volume, setVolume] = useState<number>(80);
+	const [canvasScale, setCanvasScale] = useState<number>(100); // percent 40–200
 	const wrapRef = useRef<HTMLDivElement | null>(null);
 
 	// Intro/Outro duration (seconds) — visible in UI
@@ -864,6 +865,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				volume={volume}
 				audioRef={audioRef}
 				onAudioFile={async f => { setAudioFile(f); const a = await init(f); setAnalyserNode(a); setAudioEl(audioRef.current); setReady(true); }}
+				onVolumeChange={v => { setVolume(v); setPlaybackVolume(v / 100); }}
 			/>
 
 			<TimelineScroller
@@ -872,7 +874,23 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				progress={progress}
 			/>
 
-				<div className="glassy-panel overlay-controls" ref={wrapRef} style={{ position: 'relative' }}>
+				{/* Canvas resize handle */}
+				<div className="canvas-resize-row">
+					<span className="canvas-resize-label">Canvas Size</span>
+					<input type="range" min={40} max={160} value={canvasScale}
+						onChange={e => setCanvasScale(Number(e.target.value))}
+						className="canvas-resize-slider"
+					/>
+					<span className="canvas-resize-val">{canvasScale}%</span>
+				</div>
+				<div className="glassy-panel overlay-controls" ref={wrapRef}
+					style={{ position: 'relative', maxWidth: `${canvasScale}%`, margin: '0 auto', cursor: ready ? 'pointer' : 'default' }}
+					onClick={() => {
+						const a = audioRef.current;
+						if (!a || !ready) return;
+						if (a.paused) a.play(); else a.pause();
+					}}
+				>
 					{/* Only show overlays in the correct position, no duplicate title/timer. */}
 					{ready && analyserNode && (
 						<>

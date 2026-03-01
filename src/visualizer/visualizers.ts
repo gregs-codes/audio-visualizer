@@ -47,6 +47,7 @@ export const VISUALIZER_CATEGORIES = {
     'smooth-gradient-bars',
     'layered-smooth-waves',
     'smooth-dotted-wave',
+    'dot-matrix-3d',
   ],
   'Circular & Radial': [
     'circular-bars',
@@ -156,6 +157,7 @@ export const LABELS: Record<string, string> = {
   'audio-landscape': 'Audio Landscape',
   'skyline-bars': 'Skyline Bars',
   'minimal-dot-pulse': 'Minimal Dot Pulse',
+  'dot-matrix-3d': 'Dot Matrix 3D Equalizer',
   'dancer-fbx': 'Dancer (FBX / Three.js)',
   // Synonyms
   'bars': 'Vertical Bars',
@@ -1561,6 +1563,91 @@ const smoothConcentricEqualizer = (r: RenderContext) => {
   ctx.restore();
 };
 
+// ── Dot Matrix 3D Equalizer ──────────────────────────────────────────────────
+// Replicates a perspective LED dot-matrix equalizer board: dots arranged in a
+// grid that compresses toward the right (1-point perspective). Active dots at
+// the top of each column glow green; inactive dots are dark charcoal.
+const dotMatrix3D = ({ ctx, x, y, w, h, freq }: RenderContext) => {
+  ctx.save();
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x, y, w, h);
+
+  const COLS = 30;
+  const ROWS = 16;
+  const step = Math.max(1, Math.floor(freq.length / COLS));
+
+  // 1-point perspective: column c has scale factor s(c) = near/(near+c)
+  const near = COLS * 0.55;
+  const scales: number[] = Array.from({ length: COLS }, (_, c) => near / (near + c));
+  const totalW = scales.reduce((a, s) => a + s, 0);
+  const unitW = (w * 0.9) / totalW; // base column width unit
+
+  // Precompute column x-centers and widths
+  let curX = x + w * 0.04;
+  const cols: { cx: number; sc: number; amp: number }[] = [];
+  for (let c = 0; c < COLS; c++) {
+    const sc = scales[c];
+    const colW = unitW * sc;
+    const si = c * step;
+    let sum = 0;
+    for (let i = 0; i < step; i++) sum += freq[si + i] || 0;
+    cols.push({ cx: curX + colW * 0.5, sc, amp: sum / (step * 255) });
+    curX += colW;
+  }
+
+  const gridCY = y + h * 0.46; // vertical center of the grid
+  const maxRowH = (h * 0.82) / ROWS; // max row spacing (for leftmost column)
+
+  for (let c = 0; c < COLS; c++) {
+    const { cx, sc, amp } = cols[c];
+    const dotR = Math.max(1.5, unitW * sc * 0.36);
+    const rowH = maxRowH * sc;
+    const activeDots = Math.round(amp * ROWS);
+
+    for (let r = 0; r < ROWS; r++) {
+      // r=0 is top (active/lit), r=ROWS-1 is bottom
+      const dotY = gridCY + (r - ROWS / 2 + 0.5) * rowH;
+      const isActive = r < activeDots;
+
+      ctx.beginPath();
+      ctx.arc(cx, dotY, dotR, 0, Math.PI * 2);
+
+      if (isActive) {
+        // Brightness fades from top (brightest) to the amplitude boundary
+        const fade = activeDots > 0 ? (activeDots - r) / activeDots : 0;
+        const g = Math.round(160 + fade * 95);
+        const alpha = 0.55 + fade * 0.45;
+        ctx.fillStyle = `rgba(18,${g},40,${alpha})`;
+        // Subtle glow only on the top-most 2 active dots for performance
+        if (r < 2 && dotR > 2) {
+          ctx.shadowBlur = dotR * 2.5;
+          ctx.shadowColor = '#22dd55';
+        } else {
+          ctx.shadowBlur = 0;
+        }
+      } else {
+        ctx.shadowBlur = 0;
+        // Inactive: dark charcoal, slightly lighter for upper rows
+        const base = 38 + Math.round((1 - r / ROWS) * 22);
+        ctx.fillStyle = `rgb(${base},${base + 4},${base + 2})`;
+      }
+      ctx.fill();
+    }
+  }
+
+  // Subtle floor reflection: a horizontal gradient line at bottom of grid
+  const floorY = gridCY + (ROWS / 2) * maxRowH * scales[0] + 4;
+  const grad = ctx.createLinearGradient(x, floorY, x + w, floorY);
+  grad.addColorStop(0, 'rgba(10,200,50,0.18)');
+  grad.addColorStop(0.4, 'rgba(10,200,50,0.06)');
+  grad.addColorStop(1, 'rgba(10,200,50,0.01)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, floorY, w, 2);
+
+  ctx.shadowBlur = 0;
+  ctx.restore();
+};
+
 // Registry mapping
 export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   // Core
@@ -1667,6 +1754,7 @@ export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   'audio-landscape': audioLandscape,
   'skyline-bars': skylineBarsVisualizer,
   'minimal-dot-pulse': minimalDotPulse,
+  'dot-matrix-3d': dotMatrix3D,
   'triangular-net': triangularNet,
   'dancer-fbx': dancerFBX,
   // Synonyms for backward compatibility
