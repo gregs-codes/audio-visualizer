@@ -14,21 +14,23 @@ import type { VisualizerMode, FrequencyBand } from './visualizer/visualizerModes
 import type { DancerSources } from './visualizer/dancer/DancerEngine';
 import { ANIMATION_FILES } from './visualizer/dancer/animations';
 import { CHARACTER_FILES } from './visualizer/dancer/characters';
-import { VISUALIZER_MODES, LABELS } from './visualizer/visualizers';
+import { VISUALIZER_MODES, LABELS, VISUALIZER_CATEGORIES } from './visualizer/visualizers';
 
 const CUSTOM_MODES = [
-	{ key: 'triangles-bars', label: 'Triangles + Bars' },
 	{ key: 'threejs-3d', label: '3D Three.js Visualizer' },
-	{ key: 'threejs-points', label: '3D Points Sphere' },
 	{ key: 'threejs-shader', label: 'Shader Beast Visualizer' },
-	{ key: 'threejs-ripples', label: 'Water Ripples Visualizer' },
-	{ key: 'beast-shader-canvas', label: 'Beast Shader Canvas (Pure WebGL)' },
 ];
+
+// Add Three.js visualizers to categories
+const EXTENDED_CATEGORIES = {
+	...VISUALIZER_CATEGORIES,
+	'Three.js (3D)': CUSTOM_MODES.map(m => m.key),
+};
 import type { LayoutMode } from './visualizer/GridVisualizerCanvas';
 import { useCanvasRecorder } from './recorder/useCanvasRecorder';
 
 export default function App() {
-	const { audioRef, init, getAudioStream, getBandAnalyser, getStereoAnalysers, setPlaybackMuted } = useAudioAnalyzer();
+	const { audioRef, init, getAudioStream, getBandAnalyser, getStereoAnalysers, setPlaybackMuted, setPlaybackVolume } = useAudioAnalyzer();
 	const [showSettings, setShowSettings] = useState(true);
 		const [mode, setMode] = useState<VisualizerMode | 'triangles-bars'>('vertical-bars');
 // Add state for server URL
@@ -88,8 +90,11 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [exportPhase, setExportPhase] = useState<'intro' | 'playing' | 'outro' | undefined>(undefined);
 	const [isPlaying, setIsPlaying] = useState<boolean>(false);
 	const [progress, setProgress] = useState<number>(0); // 0..1
-	const [volume] = useState<number>(80);
+	const [volume, setVolume] = useState<number>(80);
+	const [canvasScale, setCanvasScale] = useState<number>(100); // percent 40–200
 	const wrapRef = useRef<HTMLDivElement | null>(null);
+	const canvasAreaRef = useRef<HTMLDivElement | null>(null);
+	const [availWidth, setAvailWidth] = useState<number>(9999);
 
 	// Intro/Outro duration (seconds) — visible in UI
 	const [introSecs, setIntroSecs] = useState<number>(4);
@@ -247,6 +252,26 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 		// 9:16 portrait: swap dimensions
 		return { w: h, h: w };
 	}, [aspect, res]);
+
+	// Measure available canvas area width for auto-fit on window/panel resize
+	useEffect(() => {
+		const el = canvasAreaRef.current;
+		if (!el) return;
+		const ro = new ResizeObserver(entries => {
+			setAvailWidth(entries[0]?.contentRect.width ?? el.clientWidth);
+		});
+		ro.observe(el);
+		setAvailWidth(el.clientWidth);
+		return () => ro.disconnect();
+	}, []);
+
+	// Sync theme to document root so body background/colors follow active theme
+	useEffect(() => {
+		document.documentElement.setAttribute('data-theme', theme);
+	}, [theme]);
+
+	// Effective display scale: respect user's canvasScale but clamp to fit container
+	const displayScale = Math.min(canvasScale / 100, availWidth > 4 ? (availWidth - 4) / previewSize.w : 1);
 
 	// Auto-export when launched with query params from server-side renderer.
 	// Expected params: autoExport=1, audio=<url>, aspect, res, fps, codec, vBitrate, aBitrate, mode, theme
@@ -623,7 +648,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				toggleSection={toggleSection}
 				panels={panels}
 				setPanels={setPanels}
-				VISUALIZER_MODES={VISUALIZER_MODES}
+				VISUALIZER_CATEGORIES={EXTENDED_CATEGORIES}
 				LABELS={LABELS}
 				CUSTOM_MODES={CUSTOM_MODES}
 				defaultPanelColors={defaultPanelColors}
@@ -862,6 +887,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				volume={volume}
 				audioRef={audioRef}
 				onAudioFile={async f => { setAudioFile(f); const a = await init(f); setAnalyserNode(a); setAudioEl(audioRef.current); setReady(true); }}
+				onVolumeChange={v => { setVolume(v); setPlaybackVolume(v / 100); }}
 			/>
 
 			<TimelineScroller
@@ -870,49 +896,83 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				progress={progress}
 			/>
 
-				<div className="glassy-panel overlay-controls" ref={wrapRef} style={{ position: 'relative' }}>
+				{/* Canvas area — measured for responsive auto-fit */}
+				<div ref={canvasAreaRef} style={{ width: '100%' }}>
+				{/* Canvas resize handle */}
+				<div className="canvas-resize-row">
+					<span className="canvas-resize-label">Canvas Size</span>
+					<input type="range" min={40} max={160} value={canvasScale}
+						onChange={e => setCanvasScale(Number(e.target.value))}
+						className="canvas-resize-slider"
+					/>
+					<span className="canvas-resize-val">{Math.round(displayScale * 100)}%</span>
+				</div>
+				<div className="glassy-panel overlay-controls" ref={wrapRef}
+					style={{
+						position: 'relative',
+						width: Math.round(previewSize.w * displayScale),
+						height: Math.round(previewSize.h * displayScale),
+						margin: '0 auto',
+						overflow: 'hidden',
+						cursor: ready ? 'pointer' : 'default',
+					}}
+					onClick={() => {
+						const a = audioRef.current;
+						if (!a || !ready) return;
+						if (a.paused) a.play(); else a.pause();
+					}}
+				>
 					{/* Only show overlays in the correct position, no duplicate title/timer. */}
 					{ready && analyserNode && (
 						<>
-							<VisualizerPanel
-								analyserNode={analyserNode}
-								analysers={analysers}
-								layout={layout}
-								panels={panels}
-								previewSize={previewSize}
-								effectiveSize={effectiveSize}
-								audioEl={audioEl}
-								bgMode={bgMode as 'none'|'color'|'image'|'parallax'|undefined}
-								bgColor={bgColor}
-								bgImageUrl={bgImageUrl}
-								bgFit={bgFit as 'cover'|'contain'|'stretch'|undefined}
-								bgOpacity={bgOpacity}
-								title={title}
-								titlePos={titlePos}
-								titleColor={titleColor}
-								titleFx={titleFx}
-								desc={desc}
-								descPos={descPos}
-								descColor={descColor}
-								descFx={descFx}
-								countPos={countPos}
-								countColor={countColor}
-								countFx={countFx}
-								showDancer={showDancer}
-								dancerPos={dancerPos}
-								dancerSize={dancerSize}
-								dancerOverlaySources={dancerOverlaySources}
-								stereo={stereo}
-								color={color}
-								exportPhase={exportPhase}
-								canvasRef={canvasRef}
-								exportCanvasRef={exportCanvasRef}
-							/>
-							{/* Fullscreen toggle */}
+							{/* Scale inner content to fit the resized canvas wrapper */}
+							<div style={{
+								transformOrigin: 'top left',
+							transform: `scale(${displayScale})`,
+								width: previewSize.w,
+								height: previewSize.h,
+							}}>
+								<VisualizerPanel
+									analyserNode={analyserNode}
+									analysers={analysers}
+									layout={layout}
+									panels={panels}
+									previewSize={previewSize}
+									effectiveSize={effectiveSize}
+									audioEl={audioEl}
+									bgMode={bgMode as 'none'|'color'|'image'|'parallax'|undefined}
+									bgColor={bgColor}
+									bgImageUrl={bgImageUrl}
+									bgFit={bgFit as 'cover'|'contain'|'stretch'|undefined}
+									bgOpacity={bgOpacity}
+									title={title}
+									titlePos={titlePos}
+									titleColor={titleColor}
+									titleFx={titleFx}
+									desc={desc}
+									descPos={descPos}
+									descColor={descColor}
+									descFx={descFx}
+									countPos={countPos}
+									countColor={countColor}
+									countFx={countFx}
+									showDancer={showDancer}
+									dancerPos={dancerPos}
+									dancerSize={dancerSize}
+									dancerOverlaySources={dancerOverlaySources}
+									stereo={stereo}
+									color={color}
+									exportPhase={exportPhase}
+									canvasRef={canvasRef}
+									exportCanvasRef={exportCanvasRef}
+								/>
+							</div>
+							{/* Fullscreen toggle — outside scaled div so it stays at corner */}
 							<button
 								className="icon-btn fullscreen"
 								aria-label="Toggle Fullscreen"
-								onClick={() => {
+								onClick={(e) => {
+									e.stopPropagation();
 									const el = wrapRef.current; if (!el) return;
 									if (!document.fullscreenElement) el.requestFullscreen?.(); else document.exitFullscreen?.();
 								}}
@@ -920,6 +980,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 						</>
 					)}
 				</div>
+				</div>{/* /canvasAreaRef */}
 		</div>
 	</>);
 }

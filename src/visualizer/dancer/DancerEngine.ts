@@ -43,8 +43,31 @@ const engines = new Map<string, Engine>();
 
 async function loadFBX(url: string): Promise<THREE.Object3D> {
   const loader = new FBXLoader();
+  
+  // Suppress FBXLoader warnings (ShininessExponent, skinning weights)
+  const originalWarn = console.warn;
+  console.warn = (...args: any[]) => {
+    const msg = args[0]?.toString() || '';
+    if (msg.includes('FBXLoader') && 
+        (msg.includes('ShininessExponent') || msg.includes('skinning weights'))) {
+      return; // Skip these specific warnings
+    }
+    originalWarn.apply(console, args);
+  };
+  
   return new Promise((resolve, reject) => {
-    loader.load(url, (obj: THREE.Object3D) => resolve(obj), undefined, (e: unknown) => reject(e));
+    loader.load(
+      url,
+      (obj: THREE.Object3D) => {
+        console.warn = originalWarn; // Restore console.warn
+        resolve(obj);
+      },
+      undefined,
+      (e: unknown) => {
+        console.warn = originalWarn; // Restore console.warn
+        reject(e);
+      }
+    );
   });
 }
 

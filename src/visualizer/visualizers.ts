@@ -14,81 +14,87 @@ export type RenderContext = {
   panelKey: string; // unique key per panel region for persistent state
 };
 
-// List of modes (kebab-case keys)
-export const VISUALIZER_MODES = [
-  // Put the dancer mode at the top of the dropdown
-  'dancer-fbx',
-  // Core and variants
-  'high-graphics',
-  'high-graphics-nebula',
-  'high-graphics-tunnel',
-  'high-graphics-curl',
-  'high-graphics-spiral',
-  'high-graphics-fog',
-  'high-graphics-cells',
-  'high-graphics-trunk',
-  'high-graphics-rings',
-  'high-graphics-kaleidoscope',
-  'high-graphics-flow-field',
-  'high-graphics-hexagon',
-  'high-graphics-hex-paths',
-  'high-graphics-net',
-  'hexagon-visualizer',
-  'triangular-net',
-  'vertical-bars',
-  'horizontal-bars',
-  'mirrored-bars',
-  'waveform',
-  'thick-wave',
-  'dual-wave',
-  'circular-bars',
-  'rotating-circular-bars',
-  'radial-waveform',
-  'pulse-circle',
-  'concentric-rings',
-  'expanding-wave-rings',
-  // Particles and fields (baseline reactive implementations)
-  'particle-field',
-  'particle-burst',
-  'floating-dots',
-  'bubble',
-  'neon-glow-wave',
-  'audio-spikes',
-  'peak-dots',
-  'frequency-heatmap',
-  'gradient-spectrum',
-  'spiral-spectrum',
-  'polygon-pulse',
-  'rotating-polygon',
-  'starburst',
-  'line-mesh',
-  'high-graphics-rings-trails',
-  'particle-mesh',
-  'orbital-particles',
-  'breathing-blob',
-  'soft-plasma',
-  'noise-flow',
-  'light-rays',
-  'equalizer-arc',
-  'radar-sweep',
-  'audio-sun',
-  'audio-moon',
-  'tunnel',
-  'vortex',
-  'ripple-field',
-  'echo-trails',
-  'comet-tails',
-  'firefly-swarm',
-  'snowfall-react',
-  'rain-react',
-  'smoke-fog-pulse',
-  'cloud-drift',
-  'ocean-wave',
-  'horizon-pulse',
-  'audio-landscape',
-  'skyline-bars',
-  'minimal-dot-pulse',
-] as const;
+// Categorized visualizer modes
+export const VISUALIZER_CATEGORIES = {
+  'High Graphics (WebGL)': [
+    'high-graphics',
+    'high-graphics-nebula',
+    'high-graphics-tunnel',
+    'high-graphics-curl',
+    'high-graphics-spiral',
+    'high-graphics-fog',
+    'high-graphics-cells',
+    'high-graphics-trunk',
+    'high-graphics-rings',
+    'high-graphics-rings-trails',
+    'high-graphics-kaleidoscope',
+    'high-graphics-flow-field',
+    'high-graphics-hexagon',
+    'high-graphics-hex-paths',
+    'high-graphics-net',
+  ],
+  'Hexagon & Networks': [
+    'hexagon-visualizer',
+    'triangular-net',
+  ],
+  'Bars & Waveforms': [
+    'vertical-bars',
+    'horizontal-bars',
+    'mirrored-bars',
+    'thick-wave',
+    'dual-wave',
+    'gradient-spectrum',
+    'smooth-gradient-bars',
+    'layered-smooth-waves',
+    'smooth-dotted-wave',
+    'dot-matrix-3d',
+  ],
+  'Circular & Radial': [
+    'circular-bars',
+    'rotating-circular-bars',
+    'radial-waveform',
+    'pulse-circle',
+    'concentric-rings',
+    'expanding-wave-rings',
+    'smooth-concentric-equalizer',
+  ],
+  'Particles & Dots': [
+    'particle-field',
+    'particle-burst',
+    'minimal-dot-pulse',
+    'orbital-particles',
+    'firefly-swarm',
+  ],
+  'Geometric Shapes': [
+    'polygon-pulse',
+    'starburst',
+    'smooth-blob-morph',
+  ],
+  'Advanced Effects': [
+    'neon-glow-wave',
+    'frequency-heatmap',
+    'line-mesh',
+    'particle-mesh',
+    'soft-plasma',
+    'noise-flow',
+    'radar-sweep',
+    'ripple-field',
+  ],
+  'Nature & Atmosphere': [
+    'snowfall-react',
+    'rain-react',
+    'smoke-fog-pulse',
+    'cloud-drift',
+    'ocean-wave',
+  ],
+  'Landscapes': [
+    'audio-landscape',
+    'skyline-bars',
+  ],
+} as const;
+
+// Flat list of all modes (for backwards compatibility)
+export const VISUALIZER_MODES = Object.values(VISUALIZER_CATEGORIES).flat();
 
 export type VisualizerMode = typeof VISUALIZER_MODES[number];
 
@@ -115,7 +121,6 @@ export const LABELS: Record<string, string> = {
   'vertical-bars': 'Vertical Bars',
   'horizontal-bars': 'Horizontal Bars',
   'mirrored-bars': 'Mirrored Bars (center out)',
-  'waveform': 'Waveform (oscilloscope)',
   'thick-wave': 'Thick Wave (filled waveform)',
   'dual-wave': 'Dual Wave (left/right)',
   'circular-bars': 'Circular Bars',
@@ -126,43 +131,33 @@ export const LABELS: Record<string, string> = {
   'expanding-wave-rings': 'Expanding Wave Rings',
   'particle-field': 'Particle Field',
   'particle-burst': 'Particle Burst (beat-reactive)',
-  'floating-dots': 'Floating Dots',
-  'bubble': 'Bubble Visualizer',
   'neon-glow-wave': 'Neon Glow Wave',
-  'audio-spikes': 'Audio Spikes',
-  'peak-dots': 'Peak Dots',
   'frequency-heatmap': 'Frequency Heatmap',
   'gradient-spectrum': 'Gradient Spectrum',
-  'spiral-spectrum': 'Spiral Spectrum',
+  'smooth-gradient-bars': 'Smooth Gradient Bars',
+  'layered-smooth-waves': 'Layered Smooth Waves',
+  'smooth-dotted-wave': 'Smooth Dotted Wave',
   'polygon-pulse': 'Polygon Pulse',
-  'rotating-polygon': 'Rotating Polygon',
   'starburst': 'Starburst',
+  'smooth-blob-morph': 'Smooth Blob Morph',
+  'smooth-concentric-equalizer': 'Smooth Concentric Equalizer',
   'line-mesh': 'Line Mesh',
   'particle-mesh': 'Particle Mesh',
   'orbital-particles': 'Orbital Particles',
-  'breathing-blob': 'Breathing Blob',
   'soft-plasma': 'Soft Plasma',
   'noise-flow': 'Noise Flow',
-  'light-rays': 'Light Rays',
-  'equalizer-arc': 'Equalizer Arc',
   'radar-sweep': 'Radar Sweep',
-  'audio-sun': 'Audio Sun',
-  'audio-moon': 'Audio Moon',
-  'tunnel': 'Tunnel Effect',
-  'vortex': 'Vortex',
   'ripple-field': 'Ripple Field',
-  'echo-trails': 'Echo Trails',
-  'comet-tails': 'Comet Tails',
   'firefly-swarm': 'Firefly Swarm',
   'snowfall-react': 'Snowfall React',
   'rain-react': 'Rain React',
   'smoke-fog-pulse': 'Smoke / Fog Pulse',
   'cloud-drift': 'Cloud Drift',
   'ocean-wave': 'Ocean Wave',
-  'horizon-pulse': 'Horizon Pulse',
   'audio-landscape': 'Audio Landscape',
   'skyline-bars': 'Skyline Bars',
   'minimal-dot-pulse': 'Minimal Dot Pulse',
+  'dot-matrix-3d': 'Dot Matrix 3D Equalizer',
   'dancer-fbx': 'Dancer (FBX / Three.js)',
   // Synonyms
   'bars': 'Vertical Bars',
@@ -295,22 +290,54 @@ const dualWave = (r: RenderContext) => {
 };
 
 const circularBars = (r: RenderContext) => {
-  const { ctx, x, y, w, h, panel, freq } = r;
-  const cx = x + w / 2; const cy = y + h / 2; const radius = Math.min(w, h) / 4;
-  const spokes = 96;
-  for (let i = 0; i < spokes; i++) {
-    const t = (i / spokes) * 2 * Math.PI;
-    const idx = Math.floor((i / spokes) * freq.length);
-    const v = (freq[idx] / 255) * (Math.min(w, h) / 4);
-    const ratio = idx / freq.length;
-    ctx.strokeStyle = pickColor(ratio, panel.colors, panel.color);
-    ctx.lineWidth = 2;
-    const x1 = cx + Math.cos(t) * radius;
-    const y1 = cy + Math.sin(t) * radius;
-    const x2 = cx + Math.cos(t) * (radius + v);
-    const y2 = cy + Math.sin(t) * (radius + v);
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const baseSize = Math.min(w, h);
+  const rings = 3;
+  const dotsPerRing = 96;
+  
+  ctx.save();
+  
+  // Draw concentric circles with audio-reactive dots
+  for (let ring = 0; ring < rings; ring++) {
+    const ringRadius = (baseSize / 8) * (ring + 1.5) * (1 + energy * 0.1);
+    
+    // Draw base circle
+    ctx.strokeStyle = panel.colors ? pickColor(ring / rings, panel.colors, panel.color) : panel.color;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Draw dots/bars around the circle
+    ctx.globalAlpha = 0.9;
+    for (let i = 0; i < dotsPerRing; i++) {
+      const angle = (i / dotsPerRing) * Math.PI * 2;
+      const idx = Math.floor((i / dotsPerRing) * freq.length);
+      const v = freq[idx] / 255;
+      const ratio = idx / freq.length;
+      
+      // Audio-reactive bar length
+      const barLen = (baseSize / 25) * v * (0.5 + energy * 0.5);
+      
+      const x1 = cx + Math.cos(angle) * (ringRadius - barLen / 2);
+      const y1 = cy + Math.sin(angle) * (ringRadius - barLen / 2);
+      const x2 = cx + Math.cos(angle) * (ringRadius + barLen / 2);
+      const y2 = cy + Math.sin(angle) * (ringRadius + barLen / 2);
+      
+      ctx.strokeStyle = pickColor(ratio, panel.colors, panel.color);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
   }
+  
+  ctx.restore();
 };
 
 const rotatingCircularBars = (r: RenderContext) => {
@@ -374,6 +401,48 @@ const pulseCircle = (r: RenderContext) => {
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, Math.PI * 2);
   ctx.stroke();
+};
+
+const polygonPulse = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const cx = x + w / 2; const cy = y + h / 2;
+  const baseR = Math.min(w, h) / 4;
+  const segments = 64; // Angular segments around the circle
+
+  ctx.beginPath();
+  for (let i = 0; i < segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    const idx = Math.floor((i / segments) * freq.length);
+    const v = freq[idx] / 255;
+    
+    // Create angular/jagged effect by modulating radius with frequency data
+    const R = baseR * (1 + energy * 0.3 + v * 0.8);
+    const px = cx + Math.cos(angle) * R;
+    const py = cy + Math.sin(angle) * R;
+    
+    if (i === 0) {
+      ctx.moveTo(px, py);
+    } else {
+      ctx.lineTo(px, py);
+    }
+  }
+  ctx.closePath();
+  
+  // Draw with gradient based on position
+  ctx.strokeStyle = panel.colors 
+    ? pickColor(energy, panel.colors, panel.color)
+    : panel.color;
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  
+  // Add inner glow effect
+  ctx.strokeStyle = panel.colors 
+    ? pickColor(energy * 0.5, panel.colors, panel.color)
+    : panel.color;
+  ctx.globalAlpha = 0.3;
+  ctx.lineWidth = 8;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
 };
 
 const concentricRings = (r: RenderContext) => {
@@ -740,20 +809,60 @@ const frequencyHeatmap = (r: RenderContext) => {
 };
 
 const starburst = (r: RenderContext) => {
-  const { ctx, x, y, w, h, panel, freq } = r;
-  const cx = x + w / 2; const cy = y + h / 2;
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
   const rays = 64;
+  const innerRadius = Math.min(w, h) / 8;
+  const maxLen = Math.min(w, h) / 2.5;
+
+  ctx.save();
+  
+  // Draw radial bars
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 4;
+  
   for (let i = 0; i < rays; i++) {
     const idx = Math.floor((i / rays) * freq.length);
     const v = freq[idx] / 255;
     const a = (i / rays) * Math.PI * 2;
-    const len = (Math.min(w, h) / 3) * v;
-    ctx.strokeStyle = pickColor(idx / freq.length, panel.colors, panel.color);
+    const barLen = maxLen * v * (0.4 + energy * 0.6);
+    
+    const startX = cx + Math.cos(a) * innerRadius;
+    const startY = cy + Math.sin(a) * innerRadius;
+    const endX = cx + Math.cos(a) * (innerRadius + barLen);
+    const endY = cy + Math.sin(a) * (innerRadius + barLen);
+    
+    // Gradient color based on frequency band
+    const ratio = idx / freq.length;
+    ctx.strokeStyle = pickColor(ratio, panel.colors, panel.color);
+    ctx.globalAlpha = 0.7 + v * 0.3;
+    
     ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
     ctx.stroke();
   }
+  
+  // Draw glowing center circle
+  ctx.globalAlpha = 0.8;
+  ctx.fillStyle = panel.colors ? panel.colors.mid : panel.color;
+  ctx.shadowColor = panel.colors ? panel.colors.high : panel.color;
+  ctx.shadowBlur = 25;
+  ctx.beginPath();
+  ctx.arc(cx, cy, innerRadius * (1 + energy * 0.2), 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Inner glow ring
+  ctx.globalAlpha = 0.4;
+  ctx.strokeStyle = panel.colors ? panel.colors.high : panel.color;
+  ctx.lineWidth = 2;
+  ctx.shadowBlur = 15;
+  ctx.beginPath();
+  ctx.arc(cx, cy, innerRadius * 0.85, 0, Math.PI * 2);
+  ctx.stroke();
+  
+  ctx.restore();
 };
 
 const rippleField = (r: RenderContext) => {
@@ -1265,6 +1374,287 @@ const orbitalParticles = (r: RenderContext) => {
   ctx.restore();
 };
 
+// Smooth Gradient Bars: vertical bars with smooth gradients and glow (optimized)
+const smoothGradientBars = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const bars = Math.min(64, Math.max(32, Math.floor(w / 16)));
+  const barW = w / bars;
+  
+  ctx.save();
+  ctx.lineCap = 'round';
+  
+  for (let i = 0; i < bars; i++) {
+    const idx = Math.floor((i / bars) * freq.length);
+    const v = freq[idx] / 255;
+    const barH = v * h * (0.7 + energy * 0.3);
+    const ratio = idx / freq.length;
+    const color = pickColor(ratio, panel.colors, panel.color);
+    
+    ctx.globalAlpha = 0.8 + v * 0.2;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(2, barW - 2);
+    
+    const bx = x + i * barW + barW / 2;
+    ctx.beginPath();
+    ctx.moveTo(bx, y + h);
+    ctx.lineTo(bx, y + h - barH);
+    ctx.stroke();
+  }
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Layered Smooth Waves: overlapping waveforms (optimized)
+const layeredSmoothWaves = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, time, energy } = r;
+  const layers = 2;
+  
+  ctx.save();
+  ctx.lineWidth = 2;
+  
+  for (let layer = 0; layer < layers; layer++) {
+    const offset = (layer / layers) * 0.3;
+    const layerRatio = layer / (layers - 1);
+    const color = pickColor(layerRatio, panel.colors, panel.color);
+    
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.5 + energy * 0.3;
+    
+    ctx.beginPath();
+    for (let i = 0; i < time.length; i++) {
+      const v = (time[i] / 255) - 0.5 + offset;
+      const px = x + (i / time.length) * w;
+      const py = y + h / 2 + v * h * (0.4 - layer * 0.1);
+      
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Smooth Dotted Wave: waveform made of dots (optimized)
+const smoothDottedWave = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, time, energy } = r;
+  const dots = Math.min(96, Math.max(48, Math.floor(w / 6)));
+  
+  ctx.save();
+  
+  for (let i = 0; i < dots; i++) {
+    const srcIdx = Math.floor((i / dots) * time.length);
+    const v = time[srcIdx] / 255;
+    const px = x + (i / dots) * w;
+    const py = y + (1 - v) * h;
+    const ratio = srcIdx / time.length;
+    const color = pickColor(ratio, panel.colors, panel.color);
+    
+    const dotSize = 2 + v * 3;
+    
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.7 + v * 0.3;
+    
+    ctx.beginPath();
+    ctx.arc(px, py, dotSize, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Smooth Blob Morph: organic blob shape (optimized)
+const smoothBlobMorph = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const baseR = Math.min(w, h) / 4;
+  const points = 24;
+  
+  ctx.save();
+  ctx.lineWidth = 2;
+  
+  ctx.beginPath();
+  for (let i = 0; i <= points; i++) {
+    const idx = Math.floor((i / points) * freq.length);
+    const v = freq[idx] / 255;
+    const angle = (i / points) * Math.PI * 2;
+    
+    const R = baseR * (1 + v * 0.5 + energy * 0.2);
+    const px = cx + Math.cos(angle) * R;
+    const py = cy + Math.sin(angle) * R;
+    
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  
+  const color = pickColor(0.5, panel.colors, panel.color);
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.8;
+  ctx.stroke();
+  
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.2 + energy * 0.2;
+  ctx.fill();
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// Smooth Concentric Equalizer: rings with dots (optimized)
+const smoothConcentricEqualizer = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const baseSize = Math.min(w, h);
+  const rings = 3;
+  const dotsPerRing = 64;
+  
+  ctx.save();
+  
+  for (let ring = 0; ring < rings; ring++) {
+    const ringRadius = (baseSize / 10) * (ring + 1.5) * (1 + energy * 0.1);
+    const ringRatio = ring / (rings - 1);
+    const ringColor = pickColor(ringRatio, panel.colors, panel.color);
+    
+    // Draw ring outline
+    ctx.strokeStyle = ringColor;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Draw dots
+    ctx.globalAlpha = 0.8;
+    for (let i = 0; i < dotsPerRing; i++) {
+      const angle = (i / dotsPerRing) * Math.PI * 2;
+      const idx = Math.floor((i / dotsPerRing) * freq.length);
+      const v = freq[idx] / 255;
+      const ratio = idx / freq.length;
+      
+      const dotSize = 1.5 + v * 2;
+      const px = cx + Math.cos(angle) * ringRadius;
+      const py = cy + Math.sin(angle) * ringRadius;
+      const color = pickColor(ratio, panel.colors, panel.color);
+      
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.6 + v * 0.4;
+      
+      ctx.beginPath();
+      ctx.arc(px, py, dotSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  
+  // Center circle
+  const centerColor = panel.colors ? panel.colors.mid : panel.color;
+  ctx.fillStyle = centerColor;
+  ctx.globalAlpha = 0.5 + energy * 0.3;
+  ctx.beginPath();
+  ctx.arc(cx, cy, (baseSize / 15) * (1 + energy * 0.2), 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+// ── Dot Matrix 3D Equalizer ──────────────────────────────────────────────────
+// Replicates a perspective LED dot-matrix equalizer board: dots arranged in a
+// grid that compresses toward the right (1-point perspective). Active dots at
+// the top of each column glow; inactive dots are dark charcoal.
+const dotMatrix3D = ({ ctx, x, y, w, h, freq, panel }: RenderContext) => {
+  // Parse panel color into RGB components for active dot tinting
+  const hex = (panel?.color ?? '#22dd44').replace('#', '');
+  const pr = parseInt(hex.slice(0, 2), 16);
+  const pg = parseInt(hex.slice(2, 4), 16);
+  const pb = parseInt(hex.slice(4, 6), 16);
+  ctx.save();
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x, y, w, h);
+
+  const COLS = 30;
+  const ROWS = 16;
+  const step = Math.max(1, Math.floor(freq.length / COLS));
+
+  // 1-point perspective: column c has scale factor s(c) = near/(near+c)
+  const near = COLS * 0.55;
+  const scales: number[] = Array.from({ length: COLS }, (_, c) => near / (near + c));
+  const totalW = scales.reduce((a, s) => a + s, 0);
+  const unitW = (w * 0.9) / totalW; // base column width unit
+
+  // Precompute column x-centers and widths
+  let curX = x + w * 0.04;
+  const cols: { cx: number; sc: number; amp: number }[] = [];
+  for (let c = 0; c < COLS; c++) {
+    const sc = scales[c];
+    const colW = unitW * sc;
+    const si = c * step;
+    let sum = 0;
+    for (let i = 0; i < step; i++) sum += freq[si + i] || 0;
+    cols.push({ cx: curX + colW * 0.5, sc, amp: sum / (step * 255) });
+    curX += colW;
+  }
+
+  const gridCY = y + h * 0.46; // vertical center of the grid
+  const maxRowH = (h * 0.82) / ROWS; // max row spacing (for leftmost column)
+
+  for (let c = 0; c < COLS; c++) {
+    const { cx, sc, amp } = cols[c];
+    const dotR = Math.max(1.5, unitW * sc * 0.36);
+    const rowH = maxRowH * sc;
+    const activeDots = Math.round(amp * ROWS);
+
+    for (let r = 0; r < ROWS; r++) {
+      // r=0 is top (active/lit), r=ROWS-1 is bottom
+      const dotY = gridCY + (r - ROWS / 2 + 0.5) * rowH;
+      const isActive = r < activeDots;
+
+      ctx.beginPath();
+      ctx.arc(cx, dotY, dotR, 0, Math.PI * 2);
+
+      if (isActive) {
+        // Brightness fades from top (brightest) to the amplitude boundary
+        const fade = activeDots > 0 ? (activeDots - r) / activeDots : 0;
+        const alpha = 0.55 + fade * 0.45;
+        const dr = Math.round(pr * (0.15 + fade * 0.85));
+        const dg = Math.round(pg * (0.55 + fade * 0.45));
+        const db = Math.round(pb * (0.15 + fade * 0.85));
+        ctx.fillStyle = `rgba(${dr},${dg},${db},${alpha})`;
+        // Subtle glow only on the top-most 2 active dots for performance
+        if (r < 2 && dotR > 2) {
+          ctx.shadowBlur = dotR * 2.5;
+          ctx.shadowColor = panel?.color ?? '#22dd55';
+        } else {
+          ctx.shadowBlur = 0;
+        }
+      } else {
+        ctx.shadowBlur = 0;
+        // Inactive: dark charcoal, slightly lighter for upper rows
+        const base = 38 + Math.round((1 - r / ROWS) * 22);
+        ctx.fillStyle = `rgb(${base},${base + 4},${base + 2})`;
+      }
+      ctx.fill();
+    }
+  }
+
+  // Subtle floor reflection using panel color
+  const floorY = gridCY + (ROWS / 2) * maxRowH * scales[0] + 4;
+  const grad = ctx.createLinearGradient(x, floorY, x + w, floorY);
+  grad.addColorStop(0, `rgba(${pr},${pg},${pb},0.18)`);
+  grad.addColorStop(0.4, `rgba(${pr},${pg},${pb},0.06)`);
+  grad.addColorStop(1, `rgba(${pr},${pg},${pb},0.01)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, floorY, w, 2);
+
+  ctx.shadowBlur = 0;
+  ctx.restore();
+};
+
 // Registry mapping
 export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   // Core
@@ -1326,6 +1716,11 @@ export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   'pulse-circle': pulseCircle,
   'concentric-rings': concentricRings,
   'expanding-wave-rings': expandingWaveRings,
+  'smooth-gradient-bars': smoothGradientBars,
+  'layered-smooth-waves': layeredSmoothWaves,
+  'smooth-dotted-wave': smoothDottedWave,
+  'smooth-blob-morph': smoothBlobMorph,
+  'smooth-concentric-equalizer': smoothConcentricEqualizer,
   // Unique particle visualizers
   'particle-field': particleFieldVisualizer,
   'particle-burst': particleBurst,
@@ -1337,7 +1732,7 @@ export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   'frequency-heatmap': frequencyHeatmap,
   'gradient-spectrum': simpleGradientSpectrum,
   'spiral-spectrum': radialWaveform,
-  'polygon-pulse': pulseCircle,
+  'polygon-pulse': polygonPulse,
   'rotating-polygon': rotatingCircularBars,
   'starburst': starburst,
   'line-mesh': lineMesh,
@@ -1366,6 +1761,7 @@ export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   'audio-landscape': audioLandscape,
   'skyline-bars': skylineBarsVisualizer,
   'minimal-dot-pulse': minimalDotPulse,
+  'dot-matrix-3d': dotMatrix3D,
   'triangular-net': triangularNet,
   'dancer-fbx': dancerFBX,
   // Synonyms for backward compatibility
