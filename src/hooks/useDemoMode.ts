@@ -10,7 +10,7 @@ interface UseDemoModeParams {
 	setAnalyserNode: (node: AnalyserNode) => void;
 	setAudioEl: (el: HTMLAudioElement | null) => void;
 	setReady: (ready: boolean) => void;
-	setBgMode: (val: 'image') => void;
+	setBgMode: (val: 'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs') => void;
 	setBgImageUrl: (val: string) => void;
 	setBgFit: (val: 'cover') => void;
 	setBgOpacity: (val: number) => void;
@@ -66,9 +66,7 @@ export function useDemoMode(params: UseDemoModeParams) {
 		setReady(true);
 
 		// Set demo background
-		setBgMode('image');
-		setBgImageUrl('/demo/demo.jpg');
-		setBgFit('cover');
+		setBgMode('bg-viz-orbs');
 		setBgOpacity(1);
 
 		// Set title and description
@@ -81,7 +79,7 @@ export function useDemoMode(params: UseDemoModeParams) {
 
 		// Set visualizer mode
 		setPanels([{
-			mode: 'rotating-circular-bars' as VisualizerMode,
+			mode: 'high-graphics-dot-matrix-3d' as VisualizerMode,
 			color: color,
 			band: 'full' as const,
 			colors: { low: '#00d08a', mid: '#7aa2ff', high: '#ff6b6b' },
@@ -93,8 +91,9 @@ export function useDemoMode(params: UseDemoModeParams) {
 		setDancerPos('mm');
 		setDancerSize(100);
 		setDancerOverlaySources({
-			characterUrl: '/character/Maria J J Ong.fbx',
+			characterUrl: '/character/Big Vegas.fbx',
 			animationUrls: [
+				'/dance/Silly Dancing.fbx',
 				'/dance/Swing Dancing.fbx',
 				'/dance/Twist Dance.fbx',
 				'/dance/Wave Hip Hop Dance.fbx'
