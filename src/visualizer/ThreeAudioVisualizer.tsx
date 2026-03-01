@@ -6,9 +6,13 @@ interface ThreeAudioVisualizerProps {
   analyser: AnalyserNode | null;
   width?: number;
   height?: number;
+  backgroundColor?: string;
+  backgroundImageUrl?: string;
+  backgroundFit?: 'cover' | 'contain' | 'stretch';
+  backgroundOpacity?: number;
 }
 
-const ThreeAudioVisualizer: React.FC<ThreeAudioVisualizerProps> = ({ analyser, width = 640, height = 480 }) => {
+const ThreeAudioVisualizer: React.FC<ThreeAudioVisualizerProps> = ({ analyser, width = 640, height = 480, backgroundColor, backgroundImageUrl, backgroundFit = 'cover', backgroundOpacity = 1 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const animationRef = useRef<number>();
   const sphereRef = useRef<THREE.Mesh>();

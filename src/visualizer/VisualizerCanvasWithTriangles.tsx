@@ -3,9 +3,12 @@ import { useAudioAnalyzer } from '../audio/useAudioAnalyzer';
 
 interface VisualizerCanvasWithTrianglesProps {
   analyser?: AnalyserNode | null;
-  backgroundUrl?: string;
-  backgroundType?: 'image' | 'video';
+  width?: number;
+  height?: number;
+  backgroundColor?: string;
+  backgroundImageUrl?: string;
   backgroundFit?: 'cover' | 'contain' | 'stretch';
+  backgroundOpacity?: number;
 }
 
 const MAX_BG_SIZE_MB = 10;
@@ -13,9 +16,12 @@ const MAX_BG_SIZE_BYTES = MAX_BG_SIZE_MB * 1024 * 1024;
 
 const VisualizerCanvasWithTriangles: React.FC<VisualizerCanvasWithTrianglesProps> = ({
   analyser,
-  backgroundUrl,
-  backgroundType,
+  width = 1280,
+  height = 720,
+  backgroundColor,
+  backgroundImageUrl,
   backgroundFit = 'cover',
+  backgroundOpacity = 1,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [frequencyData, setFrequencyData] = useState<number[]>([]);
@@ -44,8 +50,8 @@ const VisualizerCanvasWithTriangles: React.FC<VisualizerCanvasWithTrianglesProps
   useEffect(() => {
     if (triangles.length === 0) {
       const arr = Array.from({ length: 20 }, () => ({
-        x: Math.random() * 800,
-        y: Math.random() * 400,
+        x: Math.random() * width,
+        y: Math.random() * height,
         size: 40 + Math.random() * 60,
         angle: Math.random() * Math.PI * 2,
         speed: 0.01 + Math.random() * 0.03,
@@ -53,7 +59,7 @@ const VisualizerCanvasWithTriangles: React.FC<VisualizerCanvasWithTrianglesProps
       }));
       setTriangles(arr);
     }
-  }, [triangles]);
+  }, [triangles, width, height]);
 
   // Draw visualizer
   useEffect(() => {
@@ -63,49 +69,66 @@ const VisualizerCanvasWithTriangles: React.FC<VisualizerCanvasWithTrianglesProps
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw background
-    if (backgroundUrl && backgroundType === 'image') {
-      const img = new window.Image();
-      img.src = backgroundUrl;
-      img.onload = () => {
-        drawBgImage(ctx, img, backgroundFit);
-        drawTriangles(ctx);
-        drawBars(ctx);
-      };
-      if (img.complete) {
-        drawBgImage(ctx, img, backgroundFit);
-      }
+    // Draw background color
+    if (backgroundColor) {
+      ctx.save();
+      ctx.globalAlpha = backgroundOpacity;
+      ctx.fillStyle = backgroundColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
     } else {
       ctx.fillStyle = '#1a1a1a';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
-      // Draw background image with fit (cover/contain/stretch)
-      function drawBgImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement, fit: 'cover' | 'contain' | 'stretch') {
-        const cw = ctx.canvas.width, ch = ctx.canvas.height;
-        const iw = img.width, ih = img.height;
-        if (fit === 'stretch') {
-          ctx.drawImage(img, 0, 0, cw, ch);
-          return;
-        }
-        const ir = iw / ih, cr = cw / ch;
-        let drawW = cw, drawH = ch, dx = 0, dy = 0;
-        if ((fit === 'cover' && ir > cr) || (fit === 'contain' && ir < cr)) {
-          // Image is wider (cover) or narrower (contain) than canvas
-          drawW = ch * ir;
-          drawH = ch;
-          dx = (cw - drawW) / 2;
-          dy = 0;
-        } else {
-          drawW = cw;
-          drawH = cw / ir;
-          dx = 0;
-          dy = (ch - drawH) / 2;
-        }
-        ctx.drawImage(img, dx, dy, drawW, drawH);
+
+    // Draw background image if provided
+    if (backgroundImageUrl) {
+      const img = new window.Image();
+      img.src = backgroundImageUrl;
+      img.onload = () => {
+        ctx.save();
+        ctx.globalAlpha = backgroundOpacity;
+        drawBgImage(ctx, img, backgroundFit);
+        ctx.restore();
+        drawTriangles(ctx);
+        drawBars(ctx);
+      };
+      if (img.complete) {
+        ctx.save();
+        ctx.globalAlpha = backgroundOpacity;
+        drawBgImage(ctx, img, backgroundFit);
+        ctx.restore();
       }
+    }
+    
+    // Draw background image with fit (cover/contain/stretch)
+    function drawBgImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement, fit: 'cover' | 'contain' | 'stretch') {
+      const cw = ctx.canvas.width, ch = ctx.canvas.height;
+      const iw = img.width, ih = img.height;
+      if (fit === 'stretch') {
+        ctx.drawImage(img, 0, 0, cw, ch);
+        return;
+      }
+      const ir = iw / ih, cr = cw / ch;
+      let drawW = cw, drawH = ch, dx = 0, dy = 0;
+      if ((fit === 'cover' && ir > cr) || (fit === 'contain' && ir < cr)) {
+        // Image is wider (cover) or narrower (contain) than canvas
+        drawW = ch * ir;
+        drawH = ch;
+        dx = (cw - drawW) / 2;
+        dy = 0;
+      } else {
+        drawW = cw;
+        drawH = cw / ir;
+        dx = 0;
+        dy = (ch - drawH) / 2;
+      }
+      ctx.drawImage(img, dx, dy, drawW, drawH);
+    }
+    
     drawTriangles(ctx);
     drawBars(ctx);
-  }, [frequencyData, backgroundUrl, backgroundType, triangles, beat]);
+  }, [frequencyData, backgroundColor, backgroundImageUrl, backgroundOpacity, backgroundFit, triangles, beat]);
 
   // Draw triangles
   function drawTriangles(ctx: CanvasRenderingContext2D) {
@@ -127,8 +150,8 @@ const VisualizerCanvasWithTriangles: React.FC<VisualizerCanvasWithTrianglesProps
       ctx.restore();
       return {
         ...tri,
-        x: (newX + 800) % 800,
-        y: (newY + 400) % 400,
+        x: (newX + width) % width,
+        y: (newY + height) % height,
         angle: newAngle
       };
     }));

@@ -288,7 +288,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           const feats = panelDetectors[i].update(1/60);
           const W = Math.floor(rgn.w); const H = Math.floor(rgn.h);
           let promise: Promise<HTMLCanvasElement> | null = null;
-          if (p.mode === 'high-graphics') promise = renderHighGfxWithFeatures(`highgfx|${instanceKey}|${i}`, W, H, feats, timeNow);
+          if (p.mode === 'high-graphics') promise = renderHighGfxWithFeatures(`highgfx|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top', cameraControls: true, controlsTarget: innerRef.current });
           else if (p.mode === 'high-graphics-nebula') promise = renderHighGfxNebulaWithFeatures(`nebula|${instanceKey}|${i}`, W, H, feats, timeNow);
           else if (p.mode === 'high-graphics-tunnel') promise = renderHighGfxTunnelWithFeatures(`tunnel|${instanceKey}|${i}`, W, H, feats, timeNow);
           else if (p.mode === 'high-graphics-curl') promise = renderHighGfxCurlWithFeatures(`curl|${instanceKey}|${i}`, W, H, feats, timeNow);

@@ -6,6 +6,10 @@ interface ThreeRippleVisualizerProps {
   width: number;
   height: number;
   color?: { r: number; g: number; b: number };
+  backgroundColor?: string;
+  backgroundImageUrl?: string;
+  backgroundFit?: 'cover' | 'contain' | 'stretch';
+  backgroundOpacity?: number;
 }
 
 
@@ -67,7 +71,16 @@ const fragmentShader = `
   }
 `;
 
-export const ThreeRippleVisualizer: React.FC<ThreeRippleVisualizerProps> = ({ analyser, width, height, color }) => {
+export const ThreeRippleVisualizer: React.FC<ThreeRippleVisualizerProps> = ({ 
+  analyser, 
+  width, 
+  height, 
+  color,
+  backgroundColor,
+  backgroundImageUrl,
+  backgroundFit = 'cover',
+  backgroundOpacity = 1,
+}) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number>();
   // Fix: Use plain Float32Array, not parameterized
@@ -143,7 +156,26 @@ export const ThreeRippleVisualizer: React.FC<ThreeRippleVisualizerProps> = ({ an
     };
   }, [analyser, width, height, color]);
 
-  return <div ref={mountRef} style={{ width, height, position: 'relative' }} />;
+  return (
+    <div style={{ position: 'relative', width, height }}>
+      {backgroundColor && (
+        <div style={{ position: 'absolute', inset: 0, backgroundColor, opacity: backgroundOpacity, zIndex: 0 }} />
+      )}
+      {backgroundImageUrl && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          backgroundImage: `url(${backgroundImageUrl})`,
+          backgroundSize: backgroundFit === 'stretch' ? '100% 100%' : backgroundFit,
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          opacity: backgroundOpacity,
+          zIndex: 0,
+        }} />
+      )}
+      <div ref={mountRef} style={{ width, height, position: 'relative', zIndex: 1 }} />
+    </div>
+  );
 };
 
 export default ThreeRippleVisualizer;

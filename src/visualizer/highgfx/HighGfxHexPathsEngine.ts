@@ -89,42 +89,22 @@ const fragment = /* glsl */ `
     vec2 lp  = p - hc; // local in cell
 
     float d = sdHex(lp, s * 0.98);
-    // Screen-space adaptive edge thickness so lines are visible at any resolution
     float t = fwidth(d);
     float edge = 1.0 - smoothstep(t * 0.8, t * 1.6, abs(d));
 
-    // Angle around center, wrap to [0,2pi)
-    float ang = atan(lp.y, lp.x);
-    ang = (ang < 0.0) ? ang + 2.0*PI : ang;
+    // Randomly select clusters of hexes to light up
+    float clusterSeed = hash12(hqr + floor(u_time * 0.7));
+    float clusterActive = step(0.85 - 0.45 * beat, clusterSeed); // more clusters on beat
+    float clusterFade = smoothstep(0.0, 0.15 + 0.5 * beat, clusterSeed);
 
-    // Three traveling highlight families with axis phase offsets
-    vec2 axisQ = vec2(1.0, 0.0);
-    vec2 axisR = vec2(0.0, 1.0);
-    vec2 axisS = vec2(-1.0, -1.0);
-    float spd = (0.6 + 1.6 * u_energy) * (0.35 + 0.65 * beat);
-    float phaseQ = u_time * spd + dot(hqr, axisQ) * 0.9;
-    float phaseR = u_time * spd + dot(hqr, axisR) * 0.9;
-    float phaseS = u_time * spd + dot(hqr, axisS) * 0.9;
+    // Color for active clusters
+    vec3 clusterColor = hsl2rgb(vec3(0.08 + 0.12 * hash12(hqr), 0.85, 0.55));
 
-    // Map angle to a 6-edge sawtooth to align segments to edges
-    float edgeCycle = mod(ang * 3.0, 2.0*PI); // 6 edges -> *3, two peaks per 2pi
-    float segQ = smoothstep(0.35, 0.0, abs(sin(edgeCycle - phaseQ)));
-    float segR = smoothstep(0.35, 0.0, abs(sin(edgeCycle - phaseR + 1.2)));
-    float segS = smoothstep(0.35, 0.0, abs(sin(edgeCycle - phaseS + 2.4)));
-
-    float glow = (0.35 + 0.65 * beat) * (0.25 + 0.35 * u_bass + 0.25 * u_energy);
-
-    // Directional hues
-    vec3 colQ = hsl2rgb(vec3(0.02 + 0.03 * sin(phaseQ), 0.9, 0.55)); // red-orange
-    vec3 colR = hsl2rgb(vec3(0.10 + 0.03 * sin(phaseR), 0.9, 0.55)); // amber
-    vec3 colS = hsl2rgb(vec3(0.16 + 0.03 * sin(phaseS), 0.9, 0.55)); // yellow
-
-    // Compose: base dim outline + moving highlights
     // Base grid line (dim) so hex lattice is always visible
     vec3 base = hsl2rgb(vec3(0.08, 0.6, 0.15));
-    vec3 color = edge * (base * 0.35);
-    // Add traveling highlights
-    color += edge * glow * (colQ * segQ + colR * segR + colS * segS);
+    vec3 color = edge * (base * 0.25);
+    // Add cluster highlights
+    color += edge * clusterActive * clusterFade * clusterColor * (0.7 + 0.6 * beat);
 
     gl_FragColor = vec4(color, 1.0);
   }

@@ -59,7 +59,7 @@ function createDiscMesh(segments = 128) {
   return new Float32Array(positions);
 }
 
-const BeastShaderCanvas = ({ width = 512, height = 512, color = { r: 1, g: 1, b: 1 }, analyser }) => {
+const BeastShaderCanvas = ({ width = 512, height = 512, color = { r: 1, g: 1, b: 1 }, analyser, backgroundColor, backgroundImageUrl, backgroundFit = 'cover', backgroundOpacity = 1 }) => {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -133,7 +133,25 @@ const BeastShaderCanvas = ({ width = 512, height = 512, color = { r: 1, g: 1, b:
   }, [width, height, color, analyser]);
 
   return (
-    <canvas ref={canvasRef} width={width} height={height} style={{ width, height, background: '#000', borderRadius: '50%' }} />
+    <div style={{ position: 'relative', width, height }}>
+      {backgroundColor && (
+        <div style={{ position: 'absolute', inset: 0, backgroundColor, opacity: backgroundOpacity, zIndex: 0, borderRadius: '50%' }} />
+      )}
+      {backgroundImageUrl && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          backgroundImage: `url(${backgroundImageUrl})`,
+          backgroundSize: backgroundFit === 'stretch' ? '100% 100%' : backgroundFit,
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          opacity: backgroundOpacity,
+          zIndex: 0,
+          borderRadius: '50%',
+        }} />
+      )}
+      <canvas ref={canvasRef} width={width} height={height} style={{ width, height, background: backgroundColor || '#000', borderRadius: '50%', position: 'relative', zIndex: 1 }} />
+    </div>
   );
 };
 

@@ -9,12 +9,14 @@ import { renderDancer, type DancerSources } from './DancerEngine';
 export function DancerPreview({
   sources,
   analyser,
+  audioEl,
   width = 220,
   height = 124,
   panelKey = 'preview',
 }: {
   sources: DancerSources;
   analyser?: AnalyserNode | null;
+  audioEl?: HTMLAudioElement | null;
   width?: number;
   height?: number;
   panelKey?: string;
@@ -37,7 +39,8 @@ export function DancerPreview({
         energy = freq.reduce((s, v) => s + v, 0) / (255 * Math.max(1, freq.length));
       }
       const key = `${panelKey}|${sources.characterUrl ?? ''}|${(sources.animationUrls ?? []).join(',')}`;
-      const isPlaying = energy > 0.01;
+      // Use audioEl to properly detect if music is playing (not just energy > 0)
+      const isPlaying = audioEl ? !audioEl.paused && !audioEl.ended && (audioEl.currentTime ?? 0) > 0 : energy > 0.01;
       renderDancer(key, sources, c.width, c.height, energy, isPlaying, freq, now)
         .then((off) => {
           try { ctx.clearRect(0, 0, c.width, c.height); ctx.drawImage(off, 0, 0, c.width, c.height); } catch {}
@@ -47,7 +50,7 @@ export function DancerPreview({
     };
     loop();
     return () => { cancelAnimationFrame(raf); };
-  }, [sources, analyser]);
+  }, [sources, analyser, audioEl]);
 
   return <canvas ref={canvasRef} width={width} height={height} style={{ borderRadius: 8, border: '1px solid var(--panelBorder)', background: 'transparent' }} />;
 }
