@@ -19,7 +19,6 @@ import { VISUALIZER_MODES, LABELS, VISUALIZER_CATEGORIES } from './visualizer/vi
 const CUSTOM_MODES = [
 	{ key: 'threejs-3d', label: '3D Three.js Visualizer' },
 	{ key: 'threejs-shader', label: 'Shader Beast Visualizer' },
-	{ key: 'beast-shader', label: 'Beast Shader Canvas (Pure WebGL)' },
 ];
 
 // Add Three.js visualizers to categories

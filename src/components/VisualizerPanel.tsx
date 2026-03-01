@@ -1,11 +1,102 @@
 import ThreeShaderVisualizer from '../visualizer/ThreeShaderVisualizer';
-import BeastShaderCanvas from '../visualizer/BeastShaderCanvas';
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { GridVisualizerCanvas } from '../visualizer/GridVisualizerCanvas';
 import ThreeAudioVisualizer from '../visualizer/ThreeAudioVisualizer';
 import HexagonVisualizer from '../visualizer/HexagonVisualizer';
 import VisualizerOverlays from './VisualizerOverlays';
 import type { LayoutMode } from '../visualizer/GridVisualizerCanvas';
+import {
+  ParallaxBackgroundEngine,
+  spotlightAnimate,
+  laserLightsAnimate,
+  tunnelStarfieldAnimate,
+  movingRaysAnimate,
+  bgVizBarsAnimate,
+  bgVizRadialAnimate,
+  bgVizOrbsAnimate,
+} from '../visualizer/ParallaxBackgroundEngine';
+
+// Background canvas layer that supports all background modes (including animated parallax/bg-viz)
+const ThreeJsBgLayer: React.FC<{
+  bgMode: string | undefined;
+  bgColor: string;
+  bgImageUrl: string;
+  bgFit: 'cover' | 'contain' | 'stretch' | undefined;
+  bgOpacity: number;
+  width: number;
+  height: number;
+  analyser: AnalyserNode | null;
+}> = ({ bgMode, bgColor, bgImageUrl, bgFit, bgOpacity, width, height, analyser }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const parallaxRef = useRef<ParallaxBackgroundEngine & { bgMode?: string } | null>(null);
+  const rafRef = useRef<number>();
+  const isAnimated = bgMode?.startsWith('parallax-') || bgMode?.startsWith('bg-viz-');
+
+  useEffect(() => {
+    if (!isAnimated) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    parallaxRef.current = null;
+
+    const animate = () => {
+      ctx.clearRect(0, 0, width, height);
+      const time = performance.now();
+
+      if (bgMode === 'parallax-spotlights' || bgMode === 'parallax-lasers' || bgMode === 'parallax-tunnel' || bgMode === 'parallax-rays') {
+        if (!parallaxRef.current || parallaxRef.current.bgMode !== bgMode) {
+          let layers: any[];
+          switch (bgMode) {
+            case 'parallax-spotlights': layers = [{ color: '#181a20', speed: 0, opacity: 1 }, { animate: spotlightAnimate, speed: 1, opacity: 1, blendMode: 'lighter' }]; break;
+            case 'parallax-lasers':     layers = [{ color: '#0a0c18', speed: 0, opacity: 1 }, { animate: laserLightsAnimate, speed: 1, opacity: 1, blendMode: 'lighter' }]; break;
+            case 'parallax-tunnel':     layers = [{ color: '#0a0c18', speed: 0, opacity: 1 }, { animate: tunnelStarfieldAnimate, speed: 1, opacity: 1, blendMode: 'lighter' }]; break;
+            case 'parallax-rays':       layers = [{ color: '#181a20', speed: 0, opacity: 1 }, { animate: movingRaysAnimate, speed: 1, opacity: 1, blendMode: 'lighter' }]; break;
+            default:                    layers = [{ color: '#181a20', speed: 0, opacity: 1 }, { animate: spotlightAnimate, speed: 1, opacity: 1, blendMode: 'lighter' }];
+          }
+          parallaxRef.current = Object.assign(new ParallaxBackgroundEngine(layers), { bgMode });
+        }
+        parallaxRef.current.render(ctx, time, width, height);
+      } else if (bgMode?.startsWith('bg-viz-')) {
+        const freqData = analyser
+          ? (() => { const d = new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(d); return d; })()
+          : new Uint8Array(128);
+        const tint = bgColor || '#a0b4f7';
+        if (bgMode === 'bg-viz-bars')   bgVizBarsAnimate(ctx, freqData, time, width, height, tint);
+        else if (bgMode === 'bg-viz-radial') bgVizRadialAnimate(ctx, freqData, time, width, height, tint);
+        else                            bgVizOrbsAnimate(ctx, freqData, time, width, height, tint);
+      }
+
+      rafRef.current = requestAnimationFrame(animate);
+    };
+    rafRef.current = requestAnimationFrame(animate);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [bgMode, width, height, analyser, bgColor]);
+
+  const base: React.CSSProperties = { position: 'absolute', inset: 0, zIndex: 0 };
+
+  if (!bgMode || bgMode === 'none')
+    return <div style={{ ...base, backgroundColor: '#000' }} />;
+  if (bgMode === 'image')
+    return (
+      <div style={{
+        ...base,
+        backgroundImage: bgImageUrl ? `url(${bgImageUrl})` : undefined,
+        backgroundColor: bgImageUrl ? undefined : bgColor,
+        backgroundSize: bgFit === 'stretch' ? '100% 100%' : (bgFit ?? 'cover'),
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        opacity: bgOpacity,
+      }} />
+    );
+  if (bgMode === 'color')
+    return <div style={{ ...base, backgroundColor: bgColor, opacity: bgOpacity }} />;
+  if (isAnimated)
+    return <canvas ref={canvasRef} width={width} height={height} style={{ ...base, width, height, display: 'block' }} />;
+
+  // fallback
+  return <div style={{ ...base, backgroundColor: bgColor || '#000', opacity: bgOpacity }} />;
+};
 
 interface VisualizerPanelProps {
   analyserNode: AnalyserNode | null;
@@ -84,7 +175,9 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
     analyser: analyserNode,
     width: previewSize.w,
     height: previewSize.h,
-    backgroundColor: bgMode === 'color' || bgMode?.startsWith('bg-viz') ? bgColor : undefined,
+    // For parallax/bg-viz modes, background is rendered by ThreeJsBgLayer behind the canvas,
+    // so don't fill the canvas with a solid color (keep it transparent).
+    backgroundColor: bgMode === 'color' ? bgColor : undefined,
     backgroundImageUrl: bgMode === 'image' ? bgImageUrl : undefined,
     backgroundFit: bgFit,
     backgroundOpacity: bgOpacity,
@@ -123,46 +216,64 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
     b: typeof hex === 'string' ? parseInt(hex.slice(5, 7), 16) / 255 : 1,
   });
 
+  // Shared props for the animated/static background layer used by Three.js overlay modes
+  const bgLayerProps = {
+    bgMode,
+    bgColor,
+    bgImageUrl,
+    bgFit,
+    bgOpacity,
+    width: previewSize.w,
+    height: previewSize.h,
+    analyser: analyserNode,
+  };
+
   // Render visualizer based on mode
   const renderVisualizer = () => {
     switch (mode) {
       case 'hexagon-visualizer':
         return (
           <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
-            <HexagonVisualizer {...commonProps} />
-            <VisualizerOverlays {...overlayProps} panelKey="hexagon" />
+            <ThreeJsBgLayer {...bgLayerProps} />
+            <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+              <HexagonVisualizer {...commonProps} />
+            </div>
+            <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }}>
+              <VisualizerOverlays {...overlayProps} panelKey="hexagon" />
+            </div>
           </div>
         );
 
       case 'threejs-3d':
         return (
           <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
-            <ThreeAudioVisualizer {...commonProps} />
-            <VisualizerOverlays {...overlayProps} panelKey="threejs-3d" />
+            <ThreeJsBgLayer {...bgLayerProps} />
+            <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+              <ThreeAudioVisualizer analyser={analyserNode} width={previewSize.w} height={previewSize.h} />
+            </div>
+            <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }}>
+              <VisualizerOverlays {...overlayProps} panelKey="threejs-3d" />
+            </div>
           </div>
         );
 
       case 'threejs-shader':
         return (
           <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
-            <ThreeShaderVisualizer
-              {...commonProps}
-              cameraPosition={dancerOverlaySources?.cameraPosition ?? [0, -2, 14]}
-              cameraLookAt={dancerOverlaySources?.cameraLookAt ?? [0, 0, 0]}
-              color={hexToRgb(color)}
-            />
-            <VisualizerOverlays {...overlayProps} panelKey="shader" />
-          </div>
-        );
-
-      case 'beast-shader':
-        return (
-          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
-            <BeastShaderCanvas
-              {...commonProps}
-              color={hexToRgb(color)}
-            />
-            <VisualizerOverlays {...overlayProps} panelKey="beast-shader" />
+            <ThreeJsBgLayer {...bgLayerProps} />
+            <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+              <ThreeShaderVisualizer
+                analyser={analyserNode}
+                width={previewSize.w}
+                height={previewSize.h}
+                cameraPosition={dancerOverlaySources?.cameraPosition ?? [0, -2, 14]}
+                cameraLookAt={dancerOverlaySources?.cameraLookAt ?? [0, 0, 0]}
+                color={hexToRgb(color)}
+              />
+            </div>
+            <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }}>
+              <VisualizerOverlays {...overlayProps} panelKey="shader" />
+            </div>
           </div>
         );
 

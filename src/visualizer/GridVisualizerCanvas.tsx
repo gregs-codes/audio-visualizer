@@ -290,7 +290,12 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         if (p.mode === 'high-graphics' || p.mode === 'high-graphics-nebula' || p.mode === 'high-graphics-tunnel' || p.mode === 'high-graphics-curl' || p.mode === 'high-graphics-spiral' || p.mode === 'high-graphics-cells' || p.mode === 'high-graphics-fog' || p.mode === 'high-graphics-trunk' || p.mode === 'high-graphics-rings' || p.mode === 'high-graphics-rings-trails' || p.mode === 'high-graphics-kaleidoscope' || p.mode === 'high-graphics-flow-field' || p.mode === 'high-graphics-hexagon' || p.mode === 'high-graphics-hex-paths' || p.mode === 'high-graphics-net' || p.mode === 'high-graphics-dot-matrix-3d') {
           const cached = hgFramesRef.current.get(i);
           if (cached) {
-            try { ctx.drawImage(cached, Math.floor(rgn.x), Math.floor(rgn.y), Math.floor(rgn.w), Math.floor(rgn.h)); } catch {}
+            try {
+              ctx.save();
+              ctx.globalCompositeOperation = 'lighter';
+              ctx.drawImage(cached, Math.floor(rgn.x), Math.floor(rgn.y), Math.floor(rgn.w), Math.floor(rgn.h));
+              ctx.restore();
+            } catch {}
           }
           const feats = panelDetectors[i].update(1/60);
           const W = Math.floor(rgn.w); const H = Math.floor(rgn.h);

@@ -1576,8 +1576,7 @@ const dotMatrix3D = ({ ctx, x, y, w, h, freq, panel }: RenderContext) => {
   const pg = parseInt(hex.slice(2, 4), 16);
   const pb = parseInt(hex.slice(4, 6), 16);
   ctx.save();
-  ctx.fillStyle = '#000';
-  ctx.fillRect(x, y, w, h);
+  // Background is drawn by GridVisualizerCanvas; do not fill here so user background settings show through.
 
   const COLS = 30;
   const ROWS = 16;
