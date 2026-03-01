@@ -32,6 +32,7 @@ export const VISUALIZER_CATEGORIES = {
     'high-graphics-hexagon',
     'high-graphics-hex-paths',
     'high-graphics-net',
+    'high-graphics-dot-matrix-3d',
   ],
   'Hexagon & Networks': [
     'hexagon-visualizer',
@@ -117,6 +118,7 @@ export const LABELS: Record<string, string> = {
   'high-graphics-hexagon': 'HG: Hexagon (WebGL)',
   'high-graphics-hex-paths': 'HG: Hex Paths (WebGL)',
   'high-graphics-net': 'HG: Net (WebGL)',
+  'high-graphics-dot-matrix-3d': 'HG: Dot Matrix 3D (WebGL)',
   'triangular-net': 'Triangular Net',
   'vertical-bars': 'Vertical Bars',
   'horizontal-bars': 'Horizontal Bars',

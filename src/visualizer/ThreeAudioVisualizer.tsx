@@ -22,10 +22,11 @@ const ThreeAudioVisualizer: React.FC<ThreeAudioVisualizerProps> = ({ analyser, w
     if (!mountRef.current) return;
     // Scene setup
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
+    scene.background = null;
     const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
     camera.position.z = 60;
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    renderer.setClearColor(0x000000, 0);
     renderer.setSize(width, height);
     mountRef.current.appendChild(renderer.domElement);
 
@@ -82,7 +83,23 @@ const ThreeAudioVisualizer: React.FC<ThreeAudioVisualizerProps> = ({ analyser, w
     };
   }, [analyser, width, height]);
 
-  return <div ref={mountRef} style={{ width, height }} />;
+  return (
+    <div style={{ position: 'relative', width, height }}>
+      {backgroundColor && (
+        <div style={{ position: 'absolute', inset: 0, backgroundColor, opacity: backgroundOpacity, zIndex: 0 }} />
+      )}
+      {backgroundImageUrl && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          backgroundImage: `url(${backgroundImageUrl})`,
+          backgroundSize: backgroundFit === 'stretch' ? '100% 100%' : backgroundFit,
+          backgroundPosition: 'center', backgroundRepeat: 'no-repeat',
+          opacity: backgroundOpacity, zIndex: 0,
+        }} />
+      )}
+      <div ref={mountRef} style={{ width, height, position: 'relative', zIndex: 1 }} />
+    </div>
+  );
 };
 
 export default ThreeAudioVisualizer;

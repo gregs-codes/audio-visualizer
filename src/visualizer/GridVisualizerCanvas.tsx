@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, forwardRef } from 'react';
-import { ParallaxBackgroundEngine, spotlightAnimate, laserLightsAnimate, tunnelStarfieldAnimate, movingRaysAnimate } from './ParallaxBackgroundEngine';
+import { ParallaxBackgroundEngine, spotlightAnimate, laserLightsAnimate, tunnelStarfieldAnimate, movingRaysAnimate, bgVizBarsAnimate, bgVizRadialAnimate, bgVizOrbsAnimate } from './ParallaxBackgroundEngine';
 import type { VisualizerMode } from './visualizerModes';
 import { VISUALIZERS } from './visualizers';
 import type { DancerSources } from './dancer/DancerEngine';
@@ -19,6 +19,7 @@ import { renderHighGfxKaleidoscopeWithFeatures } from './highgfx/HighGfxKaleidos
 import { renderHighGfxFlowFieldWithFeatures } from './highgfx/HighGfxFlowFieldEngine';
 import { renderHighGfxHexagonWithFeatures } from './highgfx/HighGfxHexagonEngine';
 import { renderHighGfxHexPathsWithFeatures } from './highgfx/HighGfxHexPathsEngine';
+import { renderHighGfxDotMatrix3DWithFeatures } from './highgfx/HighGfxDotMatrix3DEngine';
 import { AudioFeatureDetector } from '../audio/audioFeatures';
 
 export type LayoutMode = '1' | '2-horizontal' | '2-vertical' | '4';
@@ -37,7 +38,7 @@ type Props = {
   backgroundImageUrl?: string; // optional image background (local URL)
   backgroundFit?: 'cover'|'contain'|'stretch';
   backgroundOpacity?: number; // 0..1
-  bgMode?: 'none'|'color'|'image'|'parallax';
+  bgMode?: 'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs';
   overlayTitle?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayDescription?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayCountdown?: { enabled: boolean; position: 'lt'|'ct'|'rt'|'bl'|'br'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
@@ -193,30 +194,34 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         return;
       }
       ctx.clearRect(0, 0, c.width, c.height);
-      // Draw background: parallax, color, or image
-      if (bgMode === 'parallax' || bgMode === 'spotlight' || bgMode === 'lasers' || bgMode === 'tunnel' || bgMode === 'rays') {
+      // Read frequency data early so bg-viz modes can use it
+      const baseFreq = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(baseFreq);
+      const timeNow = performance.now() / 1000;
+      // Draw background: parallax, color, image, or audio-reactive viz
+      if (bgMode === 'parallax-spotlights' || bgMode === 'parallax-lasers' || bgMode === 'parallax-tunnel' || bgMode === 'parallax-rays') {
         if (!parallaxRef.current || parallaxRef.current.bgMode !== bgMode) {
           let layers;
           switch (bgMode) {
-            case 'spotlight':
+            case 'parallax-spotlights':
               layers = [
                 { color: '#181a20', speed: 0, opacity: 1 },
                 { animate: spotlightAnimate, speed: 1, opacity: 1, blendMode: 'lighter' },
               ];
               break;
-            case 'lasers':
+            case 'parallax-lasers':
               layers = [
                 { color: '#0a0c18', speed: 0, opacity: 1 },
                 { animate: laserLightsAnimate, speed: 1, opacity: 1, blendMode: 'lighter' },
               ];
               break;
-            case 'tunnel':
+            case 'parallax-tunnel':
               layers = [
                 { color: '#0a0c18', speed: 0, opacity: 1 },
                 { animate: tunnelStarfieldAnimate, speed: 1, opacity: 1, blendMode: 'lighter' },
               ];
               break;
-            case 'rays':
+            case 'parallax-rays':
               layers = [
                 { color: '#181a20', speed: 0, opacity: 1 },
                 { animate: movingRaysAnimate, speed: 1, opacity: 1, blendMode: 'lighter' },
@@ -232,6 +237,11 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           parallaxRef.current.bgMode = bgMode;
         }
         parallaxRef.current.render(ctx, performance.now(), c.width, c.height);
+      } else if (bgMode === 'bg-viz-bars' || bgMode === 'bg-viz-radial' || bgMode === 'bg-viz-orbs') {
+        const tint = backgroundColor ?? '#a0b4f7';
+        if (bgMode === 'bg-viz-bars') bgVizBarsAnimate(ctx, baseFreq, timeNow * 1000, c.width, c.height, tint);
+        else if (bgMode === 'bg-viz-radial') bgVizRadialAnimate(ctx, baseFreq, timeNow * 1000, c.width, c.height, tint);
+        else bgVizOrbsAnimate(ctx, baseFreq, timeNow * 1000, c.width, c.height, tint);
       } else {
         if (backgroundColor) {
           ctx.save();
@@ -267,10 +277,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           ctx.restore();
         }
       }
-      const baseFreq = new Uint8Array(analyser.frequencyBinCount);
-      analyser.getByteFrequencyData(baseFreq);
       const energy = baseFreq.reduce((sum, v) => sum + v, 0) / (255 * Math.max(1, baseFreq.length));
-      const timeNow = performance.now() / 1000;
       const features = mainDetector.update(1/60);
       panels.forEach((p, i) => {
         const rgn = regions[i] || regions[0];
@@ -280,7 +287,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         panelAnalyser.getByteFrequencyData(freq);
         panelAnalyser.getByteTimeDomainData(time);
         const renderer = VISUALIZERS[p.mode as VisualizerMode];
-        if (p.mode === 'high-graphics' || p.mode === 'high-graphics-nebula' || p.mode === 'high-graphics-tunnel' || p.mode === 'high-graphics-curl' || p.mode === 'high-graphics-spiral' || p.mode === 'high-graphics-cells' || p.mode === 'high-graphics-fog' || p.mode === 'high-graphics-trunk' || p.mode === 'high-graphics-rings' || p.mode === 'high-graphics-rings-trails' || p.mode === 'high-graphics-kaleidoscope' || p.mode === 'high-graphics-flow-field' || p.mode === 'high-graphics-hexagon' || p.mode === 'high-graphics-hex-paths' || p.mode === 'high-graphics-net') {
+        if (p.mode === 'high-graphics' || p.mode === 'high-graphics-nebula' || p.mode === 'high-graphics-tunnel' || p.mode === 'high-graphics-curl' || p.mode === 'high-graphics-spiral' || p.mode === 'high-graphics-cells' || p.mode === 'high-graphics-fog' || p.mode === 'high-graphics-trunk' || p.mode === 'high-graphics-rings' || p.mode === 'high-graphics-rings-trails' || p.mode === 'high-graphics-kaleidoscope' || p.mode === 'high-graphics-flow-field' || p.mode === 'high-graphics-hexagon' || p.mode === 'high-graphics-hex-paths' || p.mode === 'high-graphics-net' || p.mode === 'high-graphics-dot-matrix-3d') {
           const cached = hgFramesRef.current.get(i);
           if (cached) {
             try { ctx.drawImage(cached, Math.floor(rgn.x), Math.floor(rgn.y), Math.floor(rgn.w), Math.floor(rgn.h)); } catch {}
@@ -303,6 +310,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           else if (p.mode === 'high-graphics-hexagon') promise = renderHighGfxHexagonWithFeatures(`hexagon|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
           else if (p.mode === 'high-graphics-hex-paths') promise = renderHighGfxHexPathsWithFeatures(`hex-paths|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
           else if (p.mode === 'high-graphics-net') promise = renderHighGfxNetWithFeatures(`net|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
+          else if (p.mode === 'high-graphics-dot-matrix-3d') promise = renderHighGfxDotMatrix3DWithFeatures(`dot-matrix-3d|${instanceKey}|${i}`, W, H, feats, timeNow);
           if (promise) {
             promise.then((off) => { hgFramesRef.current.set(i, off); }).catch(() => {});
           }

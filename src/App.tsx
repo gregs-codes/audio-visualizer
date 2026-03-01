@@ -19,6 +19,7 @@ import { VISUALIZER_MODES, LABELS, VISUALIZER_CATEGORIES } from './visualizer/vi
 const CUSTOM_MODES = [
 	{ key: 'threejs-3d', label: '3D Three.js Visualizer' },
 	{ key: 'threejs-shader', label: 'Shader Beast Visualizer' },
+	{ key: 'beast-shader', label: 'Beast Shader Canvas (Pure WebGL)' },
 ];
 
 // Add Three.js visualizers to categories
@@ -36,9 +37,9 @@ export default function App() {
 // Add state for server URL
 const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [theme, setTheme] = useState('dark');
-	const [color, setColor] = useState('#7aa2ff');
+	const [color, setColor] = useState('#a0b4f7');
 	// Background controls
-	const [bgMode, setBgMode] = useState<'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'>('none');
+	const [bgMode, setBgMode] = useState<'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'>('none');
 	const [bgColor, setBgColor] = useState<string>('#101321');
 	const [bgImageUrl, setBgImageUrl] = useState<string>('');
 	const [bgFit, setBgFit] = useState<'cover'|'contain'|'stretch'>('cover');
@@ -547,7 +548,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 
 
 		type PanelConfig = { mode: VisualizerMode | 'triangles-bars' | 'threejs-3d' | 'threejs-points' | 'threejs-shader'; color: string; band: FrequencyBand; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources; hgView?: 'top'|'side' };
-	const defaultPanelColors = { low: '#00d08a', mid: '#7aa2ff', high: '#ff6b6b' };
+	const defaultPanelColors = { low: '#7ee8c8', mid: '#a0b4f7', high: '#f7a0ba' };
 		const [panels, setPanels] = useState<PanelConfig[]>([{ mode: 'vertical-bars', color, band: 'full', colors: defaultPanelColors, hgView: 'top' }]);
 
 	// Overlay text state
@@ -940,7 +941,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 									previewSize={previewSize}
 									effectiveSize={effectiveSize}
 									audioEl={audioEl}
-									bgMode={bgMode as 'none'|'color'|'image'|'parallax'|undefined}
+									bgMode={bgMode}
 									bgColor={bgColor}
 									bgImageUrl={bgImageUrl}
 									bgFit={bgFit as 'cover'|'contain'|'stretch'|undefined}

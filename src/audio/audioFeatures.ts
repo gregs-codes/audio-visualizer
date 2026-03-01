@@ -6,6 +6,7 @@ export type AudioFeatures = {
   drop: boolean; // large energy fall then rise
   bpm: number; // estimated beats per minute
   beatPulse: number; // 0..1 pulse synchronized to beats
+  freqData: Uint8Array; // raw per-bin frequency magnitudes 0..255
 };
 
 /**
@@ -111,6 +112,6 @@ export class AudioFeatureDetector {
     const phase = (this.time % beatPeriod) / beatPeriod;
     const beatPulse = 1 - Math.abs(phase * 2 - 1); // 0..1
 
-    return { energy, bassLevel, kick, drop, bpm: this.bpmEstimate, beatPulse };
+    return { energy, bassLevel, kick, drop, bpm: this.bpmEstimate, beatPulse, freqData: this.freqData };
   }
 }

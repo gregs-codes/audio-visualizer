@@ -92,11 +92,12 @@ const ThreeShaderVisualizer: React.FC<ThreeShaderVisualizerProps> = ({
   useEffect(() => {
     if (!mountRef.current) return;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
+    scene.background = null;
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
     camera.position.set(...cameraPosition);
     camera.lookAt(...cameraLookAt);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    renderer.setClearColor(0x000000, 0);
     renderer.setSize(width, height);
     mountRef.current.appendChild(renderer.domElement);
 

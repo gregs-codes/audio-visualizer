@@ -1,4 +1,5 @@
 import ThreeShaderVisualizer from '../visualizer/ThreeShaderVisualizer';
+import BeastShaderCanvas from '../visualizer/BeastShaderCanvas';
 import React from 'react';
 import { GridVisualizerCanvas } from '../visualizer/GridVisualizerCanvas';
 import ThreeAudioVisualizer from '../visualizer/ThreeAudioVisualizer';
@@ -14,7 +15,7 @@ interface VisualizerPanelProps {
   previewSize: { w: number; h: number };
   effectiveSize: { w: number; h: number };
   audioEl: HTMLAudioElement | null;
-  bgMode: 'none'|'color'|'image'|'parallax'|undefined;
+  bgMode: 'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'|undefined;
   bgColor: string;
   bgImageUrl: string;
   bgFit: 'cover'|'contain'|'stretch'|undefined;
@@ -83,7 +84,7 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
     analyser: analyserNode,
     width: previewSize.w,
     height: previewSize.h,
-    backgroundColor: bgMode === 'color' ? bgColor : undefined,
+    backgroundColor: bgMode === 'color' || bgMode?.startsWith('bg-viz') ? bgColor : undefined,
     backgroundImageUrl: bgMode === 'image' ? bgImageUrl : undefined,
     backgroundFit: bgFit,
     backgroundOpacity: bgOpacity,
@@ -154,6 +155,17 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
           </div>
         );
 
+      case 'beast-shader':
+        return (
+          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
+            <BeastShaderCanvas
+              {...commonProps}
+              color={hexToRgb(color)}
+            />
+            <VisualizerOverlays {...overlayProps} panelKey="beast-shader" />
+          </div>
+        );
+
       default:
         // GridVisualizerCanvas handles its own overlays internally
         return (
@@ -166,7 +178,7 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
             width={previewSize.w}
             height={previewSize.h}
             audio={audioEl}
-            backgroundColor={bgMode === 'color' ? bgColor : undefined}
+            backgroundColor={bgMode === 'color' || bgMode?.startsWith('bg-viz') ? bgColor : undefined}
             backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
             backgroundFit={bgFit}
             backgroundOpacity={bgOpacity}
@@ -196,7 +208,7 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
           width={effectiveSize.w}
           height={effectiveSize.h}
           audio={audioEl}
-          backgroundColor={bgMode === 'color' ? bgColor : undefined}
+          backgroundColor={bgMode === 'color' || bgMode?.startsWith('bg-viz') ? bgColor : undefined}
           backgroundImageUrl={bgMode === 'image' ? bgImageUrl : undefined}
           backgroundFit={bgFit}
           backgroundOpacity={bgOpacity}
