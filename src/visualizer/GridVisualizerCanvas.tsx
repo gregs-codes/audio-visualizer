@@ -4,6 +4,8 @@ import type { VisualizerMode } from './visualizerModes';
 import { VISUALIZERS } from './visualizers';
 import type { DancerSources } from './dancer/DancerEngine';
 import { renderDancerWithFeatures } from './dancer/DancerEngine';
+import { getActiveCue } from '../subtitles/parseSrt';
+import type { SubtitleCue } from '../subtitles/parseSrt';
 import { renderHighGfxWithFeatures } from './highgfx/HighGfxEngine';
 import { renderHighGfxNebulaWithFeatures } from './highgfx/HighGfxNebulaEngine';
 import { renderHighGfxTunnelWithFeatures } from './highgfx/HighGfxTunnelEngine';
@@ -44,6 +46,7 @@ type Props = {
   overlayCountdown?: { enabled: boolean; position: 'lt'|'ct'|'rt'|'bl'|'br'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayDancer?: { enabled: boolean; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; widthPct: number; sources?: DancerSources };
   overlayVU?: { left: AnalyserNode | null; right: AnalyserNode | null; accentColor?: string; position?: 'lt'|'ct'|'rt'|'bl'|'br' };
+  overlaySubtitle?: { cues: SubtitleCue[]; enabled: boolean; position: string; color: string; fontSizePx: number; offsetSecs: number };
   /** Export phase: 'intro' = dark screen with overlays, 'outro' = dark screen after music, 'playing' or undefined = normal */
   exportPhase?: 'intro' | 'playing' | 'outro';
 };
@@ -61,6 +64,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
   overlayCountdown,
   overlayDancer,
   overlayVU,
+  overlaySubtitle,
   exportPhase,
   backgroundColor,
   backgroundImageUrl,
@@ -163,9 +167,13 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
       ctx.restore();
     };
     let raf = 0;
+    let cancelled = false;
+    let lastFrameTime = 0;
+    const TARGET_FRAME_MS = 1000 / 30; // cap preview at 30 fps
     const mainDetector = new AudioFeatureDetector(analyser);
     const panelDetectors = panels.map((_, i) => new AudioFeatureDetector(analysers?.[i] || analyser));
-    const render = () => {
+    const render = (now: number = 0) => {
+      if (cancelled) return;
       const isPlaying = !!audio && !audio.paused && !audio.ended && (audio.currentTime ?? 0) > 0;
       const inIntroOutro = exportPhase === 'intro' || exportPhase === 'outro';
       if (inIntroOutro) {
@@ -190,9 +198,16 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         return;
       }
       if (!isPlaying) {
+        // Throttle idle polling to ~8 fps to save CPU/GPU
+        setTimeout(() => { if (!cancelled) raf = requestAnimationFrame(render); }, 120);
+        return;
+      }
+      // Cap active preview at 30 fps
+      if (!exportPhase && now - lastFrameTime < TARGET_FRAME_MS) {
         raf = requestAnimationFrame(render);
         return;
       }
+      lastFrameTime = now;
       ctx.clearRect(0, 0, c.width, c.height);
       // Read frequency data early so bg-viz modes can use it
       const baseFreq = new Uint8Array(analyser.frequencyBinCount);
@@ -442,11 +457,68 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         drawBar(bx, by, vuLevelRef.current.L, vuPeakRef.current.L);
         drawBar(bx, by + barH + gap, vuLevelRef.current.R, vuPeakRef.current.R);
       }
+      // Subtitle / lyrics overlay
+      if (overlaySubtitle?.enabled && overlaySubtitle.cues.length > 0 && audio) {
+        const cue = getActiveCue(overlaySubtitle.cues, audio.currentTime, overlaySubtitle.offsetSecs);
+        if (cue) {
+          const sf = c.height / 720;
+          const fontSize = Math.round(overlaySubtitle.fontSizePx * sf);
+          ctx.save();
+          ctx.font = `600 ${fontSize}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+          const lines = cue.text.split('\n');
+          const lineH = Math.round(fontSize * 1.35);
+          const padY = Math.round(10 * sf);
+          const blockH = lines.length * lineH + padY * 2;
+          const margin = Math.round(24 * sf);
+          const pos = overlaySubtitle.position;
+          const hCenter = pos[0] === 'm'; // mt, mm, mb — middle-horizontal
+
+          // For centered positions, background spans full width (like TV captions).
+          // For left/right positions, pill fits the text.
+          let bx2: number, pillW: number, textX: number;
+          if (hCenter) {
+            bx2 = 0;
+            pillW = c.width;
+            textX = c.width / 2;
+          } else {
+            const padX = Math.round(16 * sf);
+            const maxW = lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
+            pillW = maxW + padX * 2;
+            if (pos[0] === 'l') { bx2 = margin; textX = bx2 + pillW / 2; }
+            else { bx2 = c.width - margin - pillW; textX = bx2 + pillW / 2; }
+          }
+
+          let by2: number;
+          if (pos[1] === 't') by2 = margin;
+          else if (pos[1] === 'm') by2 = (c.height - blockH) / 2;
+          else by2 = c.height - margin - blockH;
+
+          // Background bar
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.50)';
+          ctx.beginPath();
+          const r = hCenter ? 0 : Math.round(6 * sf);
+          ctx.roundRect(bx2, by2, pillW, blockH, r);
+          ctx.fill();
+          // Text
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.fillStyle = overlaySubtitle.color;
+          ctx.lineWidth = Math.max(2, Math.round(3 * sf));
+          ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+          ctx.lineJoin = 'round';
+          lines.forEach((line, i) => {
+            const ty = by2 + padY + i * lineH;
+            ctx.strokeText(line, textX, ty);
+            ctx.fillText(line, textX, ty);
+          });
+          ctx.restore();
+        }
+      }
       raf = requestAnimationFrame(render);
     };
-    render();
-    return () => { cancelAnimationFrame(raf); };
-  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU, exportPhase, bgParallax, parallaxEngine]);
+    raf = requestAnimationFrame(render);
+    return () => { cancelled = true; cancelAnimationFrame(raf); };
+  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU, overlaySubtitle, exportPhase, bgParallax, parallaxEngine]);
 
   return <canvas ref={innerRef} width={width} height={height} />;
 });

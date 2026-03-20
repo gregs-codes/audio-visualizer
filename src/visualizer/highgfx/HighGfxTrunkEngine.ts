@@ -99,7 +99,7 @@ export async function renderHighGfxTrunkWithFeatures(
     const bloom = new UnrealBloomPass(new THREE.Vector2(W,H), 0.6, 0.6, 0.8); composer.addPass(bloom);
     eng = { canvas, renderer, scene, camera, composer, material, mesh: quad }; engines.set(key, eng);
   }
-  if(eng.canvas.width!==W || eng.canvas.height!==H){ eng.renderer.setSize(W,H,false); (eng.material.uniforms.u_res.value as THREE.Vector2).set(W,H); }
+  if(eng.canvas.width!==W || eng.canvas.height!==H){ eng.renderer.setSize(W,H,false); eng.composer.setSize(W,H); (eng.material.uniforms.u_res.value as THREE.Vector2).set(W,H); }
   (eng.material.uniforms.u_time as any).value = nowSec;
   (eng.material.uniforms.u_energy as any).value = THREE.MathUtils.clamp(features.energy,0,1);
   (eng.material.uniforms.u_bass as any).value = THREE.MathUtils.clamp(features.bassLevel,0,1);

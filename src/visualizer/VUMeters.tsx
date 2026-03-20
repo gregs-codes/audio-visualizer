@@ -50,7 +50,14 @@ export function VUMeters({ left, right, accentColor, orientation = 'vertical', a
   const peakRef = useRef<{ L: number; R: number }>({ L: 0, R: 0 });
 
   useEffect(() => {
-    const tick = () => {
+    const VU_FRAME_MS = 1000 / 30; // 30 fps is plenty for VU meters
+    let lastVuFrame = 0;
+    const tick = (now: number = 0) => {
+      if (now - lastVuFrame < VU_FRAME_MS) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      lastVuFrame = now;
       // Read levels
       let L = levelFromAnalyser(left, bufLRef.current);
       let R = levelFromAnalyser(right, bufRRef.current);

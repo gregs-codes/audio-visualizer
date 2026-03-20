@@ -51,7 +51,7 @@ interface ServerAutoExportParams {
 	setCountPos: (val: Position5) => void;
 	setCountColor: (val: string) => void;
 	setCountFx: (val: { float: boolean; bounce: boolean; pulse: boolean }) => void;
-	setBgMode: (val: 'none' | 'color' | 'image' | 'parallax-spotlights' | 'parallax-lasers' | 'parallax-tunnel' | 'parallax-rays') => void;
+	setBgMode: (val: 'none' | 'color' | 'image' | 'parallax-spotlights' | 'parallax-lasers' | 'parallax-tunnel' | 'parallax-rays' | 'bg-viz-bars' | 'bg-viz-radial' | 'bg-viz-orbs') => void;
 	setBgColor: (val: string) => void;
 	setBgImageUrl: (val: string) => void;
 	setBgFit: (val: 'cover' | 'contain' | 'stretch') => void;
@@ -110,7 +110,7 @@ export function useServerAutoExport(params: ServerAutoExportParams) {
 		setDancerOverlaySources,
 		setDancerSize,
 		setDancerPos,
-		setShowSettings
+		setShowSettings,
 	} = params;
 
 	useEffect(() => {
@@ -244,6 +244,10 @@ export function useServerAutoExport(params: ServerAutoExportParams) {
 					if (dancerPosQ) setDancerPos(dancerPosQ as any);
 				}
 
+				// Intro/outro durations (override from URL so server can configure them)
+				const introSecsQ = parseInt(q.get('introSecs') || String(introSecs), 10);
+				const outroSecsQ = parseInt(q.get('outroSecs') || String(outroSecs), 10);
+
 				if (!audioUrl) throw new Error('Missing audio URL');
 
 				// Load audio
@@ -307,14 +311,12 @@ export function useServerAutoExport(params: ServerAutoExportParams) {
 				await new Promise(r => setTimeout(r, RECORDER_PREBUFFER_SECS * 1000));
 				console.log('[auto-export] Pipeline ready, recording intro...');
 				(window as any).__exportTrimStart = RECORDER_PREBUFFER_SECS;
-				await new Promise(r => setTimeout(r, introSecs * 1000));
-				console.log('[auto-export] Intro done, starting audio playback');
-
+				await new Promise(r => setTimeout(r, introSecsQ * 1000));
 				setExportPhase('playing');
 				(window as any).__exportProgress = 0;
 				a.currentTime = 0;
 				await a.play();
-				const totalDur = introSecs + (a.duration || 0) + outroSecs;
+				const totalDur = introSecsQ + (a.duration || 0) + outroSecsQ;
 				console.log('[auto-export] Playback started, duration:', a.duration);
 
 				await new Promise<void>((resolve) => {
@@ -322,7 +324,7 @@ export function useServerAutoExport(params: ServerAutoExportParams) {
 					const maxWaitMs = (a.duration + 5) * 1000;
 					const check = () => {
 						if (a.duration > 0) {
-							const elapsed = introSecs + (a.currentTime || 0);
+							const elapsed = introSecsQ + (a.currentTime || 0);
 							const p = Math.min(1, elapsed / totalDur);
 							(window as any).__exportProgress = p;
 						}
@@ -338,7 +340,7 @@ export function useServerAutoExport(params: ServerAutoExportParams) {
 
 				console.log('[auto-export] Recording outro...');
 				setExportPhase('outro');
-				await new Promise(r => setTimeout(r, outroSecs * 1000));
+				await new Promise(r => setTimeout(r, outroSecsQ * 1000));
 				(window as any).__exportProgress = 1;
 				setExportPhase(undefined);
 				console.log('[auto-export] Stopping recorder...');
