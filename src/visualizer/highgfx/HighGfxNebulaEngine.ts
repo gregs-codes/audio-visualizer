@@ -67,6 +67,7 @@ export async function renderHighGfxNebulaWithFeatures(
 
   if (eng.canvas.width !== Math.floor(width) || eng.canvas.height !== Math.floor(height)) {
     eng.renderer.setSize(width, height, false);
+    eng.composer.setSize(Math.floor(width), Math.floor(height));
     eng.camera.aspect = width / height; eng.camera.updateProjectionMatrix();
   }
 

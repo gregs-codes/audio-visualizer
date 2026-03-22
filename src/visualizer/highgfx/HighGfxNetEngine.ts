@@ -79,7 +79,7 @@ export async function renderHighGfxNetWithFeatures(
     eng = { canvas, renderer, scene, camera, composer, material, lines };
     engines.set(key, eng);
   }
-  if (eng.canvas.width !== W || eng.canvas.height !== H) { eng.renderer.setSize(W, H, false); eng.camera.aspect = W / H; eng.camera.updateProjectionMatrix(); }
+  if (eng.canvas.width !== W || eng.canvas.height !== H) { eng.renderer.setSize(W, H, false); eng.composer.setSize(W, H); eng.camera.aspect = W / H; eng.camera.updateProjectionMatrix(); }
   (eng.material.uniforms.u_time as any).value = nowSec;
   (eng.material.uniforms.u_energy as any).value = THREE.MathUtils.clamp(features.energy, 0, 1);
   (eng.material.uniforms.u_bass as any).value = THREE.MathUtils.clamp(features.bassLevel, 0, 1);

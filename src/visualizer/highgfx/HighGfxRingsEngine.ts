@@ -115,6 +115,7 @@ export async function renderHighGfxRingsWithFeatures(
   }
   if(eng.canvas.width!==W || eng.canvas.height!==H){
     eng.renderer.setSize(W,H,false);
+    eng.composer.setSize(W,H);
     (eng.material.uniforms.u_res.value as THREE.Vector2).set(W,H);
     // Update camera for new aspect ratio
     const aspect = W / H;

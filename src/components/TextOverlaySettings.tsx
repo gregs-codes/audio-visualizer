@@ -37,7 +37,7 @@ export function TextOverlaySettings(props: TextOverlaySettingsProps) {
     introSecs, setIntroSecs, outroSecs, setOutroSecs,
     title, setTitle, titlePos, setTitlePos, titleColor, setTitleColor, titleFx, setTitleFx,
     desc, setDesc, descPos, setDescPos, descColor, setDescColor, descFx, setDescFx,
-    countPos, setCountPos, countColor, setCountColor, countFx, setCountFx
+    countPos, setCountPos, countColor, setCountColor, countFx, setCountFx,
   } = props;
   return (
     <div className="section">

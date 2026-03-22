@@ -135,6 +135,7 @@ export async function renderHighGfxDotMatrix3DWithFeatures(
   // Resize if needed
   if (eng.canvas.width !== W || eng.canvas.height !== H) {
     eng.renderer.setSize(W, H, false);
+    eng.composer.setSize(W, H);
     eng.camera.aspect = W / H;
     eng.camera.updateProjectionMatrix();
   }
