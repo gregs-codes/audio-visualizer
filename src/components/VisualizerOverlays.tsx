@@ -27,11 +27,15 @@ interface OverlayProps {
   titlePos?: string;
   titleColor?: string;
   titleFx?: { float?: boolean; bounce?: boolean; pulse?: boolean };
+  titleOffsetX?: number;
+  titleOffsetY?: number;
   // Description
   desc?: string;
   descPos?: string;
   descColor?: string;
   descFx?: { float?: boolean; bounce?: boolean; pulse?: boolean };
+  descOffsetX?: number;
+  descOffsetY?: number;
   // Countdown
   countPos?: string;
   countColor?: string;
@@ -50,28 +54,35 @@ interface OverlayProps {
   subtitleFontSize?: number; // base px at 720p
 }
 
-// Map position code to CSS properties
+// Map position code to CSS properties, with optional pixel offset
 function positionStyle(
   pos: string | undefined,
   width: number,
   height: number,
+  offsetX = 0,
+  offsetY = 0,
 ): React.CSSProperties {
   const margin = 24;
   const base: React.CSSProperties = { position: 'absolute', pointerEvents: 'none' };
+  const applyOffset = (existing?: string): string | undefined => {
+    if (!offsetX && !offsetY) return existing || undefined;
+    const t = `translate(${offsetX}px, ${offsetY}px)`;
+    return existing ? `${existing} ${t}` : t;
+  };
   switch (pos) {
-    case 'lt': return { ...base, left: margin, top: margin, textAlign: 'left' };
-    case 'mt': return { ...base, left: 0, right: 0, top: margin, textAlign: 'center' };
-    case 'rt': return { ...base, right: margin, top: margin, textAlign: 'right' };
-    case 'ct': return { ...base, left: 0, right: 0, top: margin, textAlign: 'center' };
-    case 'lm': return { ...base, left: margin, top: '50%', transform: 'translateY(-50%)', textAlign: 'left' };
-    case 'mm': return { ...base, left: 0, right: 0, top: '50%', transform: 'translateY(-50%)', textAlign: 'center' };
-    case 'rm': return { ...base, right: margin, top: '50%', transform: 'translateY(-50%)', textAlign: 'right' };
-    case 'lb': return { ...base, left: margin, bottom: margin, textAlign: 'left' };
-    case 'mb': return { ...base, left: 0, right: 0, bottom: margin, textAlign: 'center' };
-    case 'rb': return { ...base, right: margin, bottom: margin, textAlign: 'right' };
-    case 'bl': return { ...base, left: margin, bottom: margin, textAlign: 'left' };
-    case 'br': return { ...base, right: margin, bottom: margin, textAlign: 'right' };
-    default:   return { ...base, left: 0, right: 0, top: margin, textAlign: 'center' };
+    case 'lt': return { ...base, left: margin, top: margin, textAlign: 'left', transform: applyOffset() };
+    case 'mt': return { ...base, left: 0, right: 0, top: margin, textAlign: 'center', transform: applyOffset() };
+    case 'rt': return { ...base, right: margin, top: margin, textAlign: 'right', transform: applyOffset() };
+    case 'ct': return { ...base, left: 0, right: 0, top: margin, textAlign: 'center', transform: applyOffset() };
+    case 'lm': return { ...base, left: margin, top: '50%', transform: applyOffset('translateY(-50%)'), textAlign: 'left' };
+    case 'mm': return { ...base, left: 0, right: 0, top: '50%', transform: applyOffset('translateY(-50%)'), textAlign: 'center' };
+    case 'rm': return { ...base, right: margin, top: '50%', transform: applyOffset('translateY(-50%)'), textAlign: 'right' };
+    case 'lb': return { ...base, left: margin, bottom: margin, textAlign: 'left', transform: applyOffset() };
+    case 'mb': return { ...base, left: 0, right: 0, bottom: margin, textAlign: 'center', transform: applyOffset() };
+    case 'rb': return { ...base, right: margin, bottom: margin, textAlign: 'right', transform: applyOffset() };
+    case 'bl': return { ...base, left: margin, bottom: margin, textAlign: 'left', transform: applyOffset() };
+    case 'br': return { ...base, right: margin, bottom: margin, textAlign: 'right', transform: applyOffset() };
+    default:   return { ...base, left: 0, right: 0, top: margin, textAlign: 'center', transform: applyOffset() };
   }
 }
 
@@ -130,10 +141,14 @@ const VisualizerOverlays: React.FC<OverlayProps> = ({
   titlePos,
   titleColor = '#ffffff',
   titleFx,
+  titleOffsetX = 0,
+  titleOffsetY = 0,
   desc,
   descPos,
   descColor = '#ffffff',
   descFx,
+  descOffsetX = 0,
+  descOffsetY = 0,
   countPos,
   countColor = '#ffffff',
   countFx,
@@ -183,7 +198,7 @@ const VisualizerOverlays: React.FC<OverlayProps> = ({
       {/* Title overlay */}
       {title && (
         <div style={{
-          ...positionStyle(titlePos, width, height),
+          ...positionStyle(titlePos, width, height, titleOffsetX, titleOffsetY),
           color: titleColor,
           fontSize: Math.round(32 * scaleFactor),
           fontWeight: 600,
@@ -197,7 +212,7 @@ const VisualizerOverlays: React.FC<OverlayProps> = ({
       {/* Description overlay */}
       {desc && (
         <div style={{
-          ...positionStyle(descPos, width, height),
+          ...positionStyle(descPos, width, height, descOffsetX, descOffsetY),
           color: descColor,
           fontSize: Math.round(20 * scaleFactor),
           fontWeight: 400,

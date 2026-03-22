@@ -386,6 +386,9 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 								band: p.band || 'full',
 								colors: p.colors || defaultPanelColors,
 								hgView: p.hgView || 'top',
+								hgRotation: p.hgRotation != null ? p.hgRotation : undefined,
+								hgResolution: p.hgResolution != null ? p.hgResolution : undefined,
+								hgDistortion: p.hgDistortion != null ? p.hgDistortion : undefined,
 								dancerSources: p.dancerSources,
 							})));
 						}
@@ -408,6 +411,10 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 					if (descColorQ) setDescColor(descColorQ.startsWith('#') ? descColorQ : '#' + descColorQ);
 					setDescFx(descFxQ);
 				}
+				const titleOffsetXQ = q.get('titleOffsetX'); if (titleOffsetXQ) setTitleOffsetX(parseFloat(titleOffsetXQ));
+				const titleOffsetYQ = q.get('titleOffsetY'); if (titleOffsetYQ) setTitleOffsetY(parseFloat(titleOffsetYQ));
+				const descOffsetXQ = q.get('descOffsetX'); if (descOffsetXQ) setDescOffsetX(parseFloat(descOffsetXQ));
+				const descOffsetYQ = q.get('descOffsetY'); if (descOffsetYQ) setDescOffsetY(parseFloat(descOffsetYQ));
 
 				// Countdown from query params (always enabled)
 				if (countPosQ) setCountPos(countPosQ as any);
@@ -657,6 +664,10 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 		const [countPos, setCountPos] = useState<Position5>('rt');
 	const [countColor, setCountColor] = useState('#e6e6eb');
 	const [countFx, setCountFx] = useState<{ float: boolean; bounce: boolean; pulse: boolean }>({ float: false, bounce: true, pulse: true });
+	const [titleOffsetX, setTitleOffsetX] = useState(0);
+	const [titleOffsetY, setTitleOffsetY] = useState(0);
+	const [descOffsetX, setDescOffsetX] = useState(0);
+	const [descOffsetY, setDescOffsetY] = useState(0);
 
 	// Subtitle / lyrics state
 	const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([]);
@@ -790,6 +801,10 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				setTitleColor={setTitleColor}
 				titleFx={titleFx}
 				setTitleFx={setTitleFx}
+				titleOffsetX={titleOffsetX}
+				setTitleOffsetX={setTitleOffsetX}
+				titleOffsetY={titleOffsetY}
+				setTitleOffsetY={setTitleOffsetY}
 				desc={desc}
 				setDesc={setDesc}
 				descPos={descPos}
@@ -798,6 +813,10 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				setDescColor={setDescColor}
 				descFx={descFx}
 				setDescFx={setDescFx}
+				descOffsetX={descOffsetX}
+				setDescOffsetX={setDescOffsetX}
+				descOffsetY={descOffsetY}
+				setDescOffsetY={setDescOffsetY}
 				countPos={countPos}
 				setCountPos={setCountPos}
 				countColor={countColor}
@@ -892,6 +911,10 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 									if (title) { fd.append('title', title); fd.append('titlePos', titlePos); fd.append('titleColor', titleColor); if (titleFx.float) fd.append('titleFloat', '1'); if (titleFx.bounce) fd.append('titleBounce', '1'); if (titleFx.pulse) fd.append('titlePulse', '1'); }
 									if (desc) { fd.append('desc', desc); fd.append('descPos', descPos); fd.append('descColor', descColor); if (descFx.float) fd.append('descFloat', '1'); if (descFx.bounce) fd.append('descBounce', '1'); if (descFx.pulse) fd.append('descPulse', '1'); }
 									fd.append('showCountdown', '1'); fd.append('countPos', countPos); fd.append('countColor', countColor); if (countFx.float) fd.append('countFloat', '1'); if (countFx.bounce) fd.append('countBounce', '1'); if (countFx.pulse) fd.append('countPulse', '1');
+										if (titleOffsetX) fd.append('titleOffsetX', String(titleOffsetX));
+										if (titleOffsetY) fd.append('titleOffsetY', String(titleOffsetY));
+										if (descOffsetX) fd.append('descOffsetX', String(descOffsetX));
+										if (descOffsetY) fd.append('descOffsetY', String(descOffsetY));
 									fd.append('bgMode', bgMode);
 							fd.append('bgColor', bgColor); // always send – used as tint for viz-bg modes too
 							if (bgMode === 'image') {
@@ -1095,10 +1118,14 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 									titlePos={titlePos}
 									titleColor={titleColor}
 									titleFx={titleFx}
+									titleOffsetX={titleOffsetX}
+									titleOffsetY={titleOffsetY}
 									desc={desc}
 									descPos={descPos}
 									descColor={descColor}
 									descFx={descFx}
+									descOffsetX={descOffsetX}
+									descOffsetY={descOffsetY}
 									countPos={countPos}
 									countColor={countColor}
 									countFx={countFx}

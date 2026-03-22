@@ -15,6 +15,10 @@ interface TextOverlaySettingsProps {
   setTitleColor: (v: string) => void;
   titleFx: any;
   setTitleFx: (cb: (s: any) => any) => void;
+  titleOffsetX: number;
+  setTitleOffsetX: (v: number) => void;
+  titleOffsetY: number;
+  setTitleOffsetY: (v: number) => void;
   desc: string;
   setDesc: (v: string) => void;
   descPos: string;
@@ -23,6 +27,10 @@ interface TextOverlaySettingsProps {
   setDescColor: (v: string) => void;
   descFx: any;
   setDescFx: (cb: (s: any) => any) => void;
+  descOffsetX: number;
+  setDescOffsetX: (v: number) => void;
+  descOffsetY: number;
+  setDescOffsetY: (v: number) => void;
   countPos: string;
   setCountPos: (v: string) => void;
   countColor: string;
@@ -36,9 +44,26 @@ export function TextOverlaySettings(props: TextOverlaySettingsProps) {
     openSections, toggleSection,
     introSecs, setIntroSecs, outroSecs, setOutroSecs,
     title, setTitle, titlePos, setTitlePos, titleColor, setTitleColor, titleFx, setTitleFx,
+    titleOffsetX, setTitleOffsetX, titleOffsetY, setTitleOffsetY,
     desc, setDesc, descPos, setDescPos, descColor, setDescColor, descFx, setDescFx,
+    descOffsetX, setDescOffsetX, descOffsetY, setDescOffsetY,
     countPos, setCountPos, countColor, setCountColor, countFx, setCountFx,
   } = props;
+
+  const offsetInput = (val: number, set: (v: number) => void, label: string) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
+      <span style={{ color: 'var(--muted)', minWidth: 14 }}>{label}</span>
+      <input
+        type="number"
+        value={val}
+        step={1}
+        onChange={e => set(parseInt(e.target.value) || 0)}
+        style={{ width: 56, fontSize: 11 }}
+      />
+      <span style={{ color: 'var(--muted)', fontSize: 10 }}>px</span>
+    </label>
+  );
+
   return (
     <div className="section">
       <div className="section-header" onClick={() => toggleSection('text')}>
@@ -76,6 +101,10 @@ export function TextOverlaySettings(props: TextOverlaySettingsProps) {
             <label><input type='checkbox' checked={titleFx.bounce} onChange={e => setTitleFx(s => ({ ...s, bounce: e.target.checked }))} /> Bounce</label>
             <label><input type='checkbox' checked={titleFx.pulse} onChange={e => setTitleFx(s => ({ ...s, pulse: e.target.checked }))} /> Pulse</label>
           </div>
+          <div className="field-row" style={{ gap: 8 }}>
+            {offsetInput(titleOffsetX, setTitleOffsetX, 'X')}
+            {offsetInput(titleOffsetY, setTitleOffsetY, 'Y')}
+          </div>
 
           {/* Description */}
           <div className="field-label" style={{ marginTop: 4 }}>Description</div>
@@ -92,6 +121,10 @@ export function TextOverlaySettings(props: TextOverlaySettingsProps) {
             <label><input type='checkbox' checked={descFx.float} onChange={e => setDescFx(s => ({ ...s, float: e.target.checked }))} /> Float</label>
             <label><input type='checkbox' checked={descFx.bounce} onChange={e => setDescFx(s => ({ ...s, bounce: e.target.checked }))} /> Bounce</label>
             <label><input type='checkbox' checked={descFx.pulse} onChange={e => setDescFx(s => ({ ...s, pulse: e.target.checked }))} /> Pulse</label>
+          </div>
+          <div className="field-row" style={{ gap: 8 }}>
+            {offsetInput(descOffsetX, setDescOffsetX, 'X')}
+            {offsetInput(descOffsetY, setDescOffsetY, 'Y')}
           </div>
 
           {/* Countdown */}

@@ -22,11 +22,12 @@ import { renderHighGfxFlowFieldWithFeatures } from './highgfx/HighGfxFlowFieldEn
 import { renderHighGfxHexagonWithFeatures } from './highgfx/HighGfxHexagonEngine';
 import { renderHighGfxHexPathsWithFeatures } from './highgfx/HighGfxHexPathsEngine';
 import { renderHighGfxDotMatrix3DWithFeatures } from './highgfx/HighGfxDotMatrix3DEngine';
+import { renderHighGfxAnomalyWithFeatures } from './highgfx/HighGfxAnomalyEngine';
 import { AudioFeatureDetector } from '../audio/audioFeatures';
 
 export type LayoutMode = '1' | '2-horizontal' | '2-vertical' | '4';
 
-type Panel = { mode: VisualizerMode; color: string; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources; hgView?: 'top'|'side' };
+type Panel = { mode: VisualizerMode; color: string; colors?: { low: string; mid: string; high: string }; dancerSources?: DancerSources; hgView?: 'top'|'side'; hgRotation?: number; hgResolution?: number; hgDistortion?: number };
 
 type Props = {
   analyser: AnalyserNode | null;
@@ -41,8 +42,8 @@ type Props = {
   backgroundFit?: 'cover'|'contain'|'stretch';
   backgroundOpacity?: number; // 0..1
   bgMode?: 'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs';
-  overlayTitle?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
-  overlayDescription?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
+  overlayTitle?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean }; offsetX?: number; offsetY?: number };
+  overlayDescription?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean }; offsetX?: number; offsetY?: number };
   overlayCountdown?: { enabled: boolean; position: 'lt'|'ct'|'rt'|'bl'|'br'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayDancer?: { enabled: boolean; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; widthPct: number; sources?: DancerSources };
   overlayVU?: { left: AnalyserNode | null; right: AnalyserNode | null; accentColor?: string; position?: 'lt'|'ct'|'rt'|'bl'|'br' };
@@ -130,6 +131,8 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
       energy: number,
       timeNow: number,
       effects?: { float?: boolean; bounce?: boolean; pulse?: boolean },
+      offsetX = 0,
+      offsetY = 0,
     ) => {
       if (!text) return;
       ctx.save();
@@ -157,13 +160,14 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
       const bounceOffset = effects?.bounce ? -energy * 20 * scaleFactor : 0;
       ctx.textAlign = textAlign;
       ctx.textBaseline = textBaseline;
-      const ty = y + floatOffset + bounceOffset;
+      const tx = x + offsetX * scaleFactor;
+      const ty = y + floatOffset + bounceOffset + offsetY * scaleFactor;
       ctx.lineWidth = Math.max(2, Math.round(3 * scaleFactor));
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
       ctx.lineJoin = 'round';
       ctx.miterLimit = 2;
-      ctx.strokeText(text, x, ty);
-      ctx.fillText(text, x, ty);
+      ctx.strokeText(text, tx, ty);
+      ctx.fillText(text, tx, ty);
       ctx.restore();
     };
     let raf = 0;
@@ -181,8 +185,8 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, c.width, c.height);
         const timeNow = performance.now() / 1000;
-        if (overlayTitle) drawOverlayText(overlayTitle.text, overlayTitle.position, overlayTitle.color, 48, 0, timeNow, undefined);
-        if (overlayDescription) drawOverlayText(overlayDescription.text, overlayDescription.position, overlayDescription.color, 24, 0, timeNow, undefined);
+        if (overlayTitle) drawOverlayText(overlayTitle.text, overlayTitle.position, overlayTitle.color, 48, 0, timeNow, undefined, overlayTitle.offsetX ?? 0, overlayTitle.offsetY ?? 0);
+        if (overlayDescription) drawOverlayText(overlayDescription.text, overlayDescription.position, overlayDescription.color, 24, 0, timeNow, undefined, overlayDescription.offsetX ?? 0, overlayDescription.offsetY ?? 0);
         if (overlayCountdown?.enabled && audio) {
           const dur = audio.duration || 0;
           const rem = exportPhase === 'intro' ? dur : 0;
@@ -302,7 +306,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         panelAnalyser.getByteFrequencyData(freq);
         panelAnalyser.getByteTimeDomainData(time);
         const renderer = VISUALIZERS[p.mode as VisualizerMode];
-        if (p.mode === 'high-graphics' || p.mode === 'high-graphics-nebula' || p.mode === 'high-graphics-tunnel' || p.mode === 'high-graphics-curl' || p.mode === 'high-graphics-spiral' || p.mode === 'high-graphics-cells' || p.mode === 'high-graphics-fog' || p.mode === 'high-graphics-trunk' || p.mode === 'high-graphics-rings' || p.mode === 'high-graphics-rings-trails' || p.mode === 'high-graphics-kaleidoscope' || p.mode === 'high-graphics-flow-field' || p.mode === 'high-graphics-hexagon' || p.mode === 'high-graphics-hex-paths' || p.mode === 'high-graphics-net' || p.mode === 'high-graphics-dot-matrix-3d') {
+        if (p.mode === 'high-graphics' || p.mode === 'high-graphics-nebula' || p.mode === 'high-graphics-tunnel' || p.mode === 'high-graphics-curl' || p.mode === 'high-graphics-spiral' || p.mode === 'high-graphics-cells' || p.mode === 'high-graphics-fog' || p.mode === 'high-graphics-trunk' || p.mode === 'high-graphics-rings' || p.mode === 'high-graphics-rings-trails' || p.mode === 'high-graphics-kaleidoscope' || p.mode === 'high-graphics-flow-field' || p.mode === 'high-graphics-hexagon' || p.mode === 'high-graphics-hex-paths' || p.mode === 'high-graphics-net' || p.mode === 'high-graphics-dot-matrix-3d' || p.mode === 'high-graphics-anomaly') {
           const cached = hgFramesRef.current.get(i);
           if (cached) {
             try {
@@ -331,6 +335,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           else if (p.mode === 'high-graphics-hex-paths') promise = renderHighGfxHexPathsWithFeatures(`hex-paths|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
           else if (p.mode === 'high-graphics-net') promise = renderHighGfxNetWithFeatures(`net|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
           else if (p.mode === 'high-graphics-dot-matrix-3d') promise = renderHighGfxDotMatrix3DWithFeatures(`dot-matrix-3d|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-anomaly') promise = renderHighGfxAnomalyWithFeatures(`anomaly|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top', rotationSpeed: p.hgRotation ?? 1.0, resolution: p.hgResolution ?? 32, distortion: p.hgDistortion ?? 1.0, color: p.color });
           if (promise) {
             promise.then((off) => { hgFramesRef.current.set(i, off); }).catch(() => {});
           }
@@ -366,8 +371,8 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           .then((canvas3d) => { dancerFrameRef.current = canvas3d; })
           .catch(() => {});
       }
-      if (overlayTitle) drawOverlayText(overlayTitle.text, overlayTitle.position, overlayTitle.color, 48, energy, timeNow, overlayTitle.effects);
-      if (overlayDescription) drawOverlayText(overlayDescription.text, overlayDescription.position, overlayDescription.color, 24, energy, timeNow, overlayDescription.effects);
+      if (overlayTitle) drawOverlayText(overlayTitle.text, overlayTitle.position, overlayTitle.color, 48, energy, timeNow, overlayTitle.effects, overlayTitle.offsetX ?? 0, overlayTitle.offsetY ?? 0);
+      if (overlayDescription) drawOverlayText(overlayDescription.text, overlayDescription.position, overlayDescription.color, 24, energy, timeNow, overlayDescription.effects, overlayDescription.offsetX ?? 0, overlayDescription.offsetY ?? 0);
       if (overlayCountdown?.enabled && audio) {
         const dur = audio.duration || 0;
         const cur = audio.currentTime || 0;
