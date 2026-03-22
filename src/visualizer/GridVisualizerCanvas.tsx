@@ -320,7 +320,13 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           else if (p.mode === 'high-graphics-tunnel') promise = renderHighGfxTunnelWithFeatures(`tunnel|${instanceKey}|${i}`, W, H, feats, timeNow);
           else if (p.mode === 'high-graphics-curl') promise = renderHighGfxCurlWithFeatures(`curl|${instanceKey}|${i}`, W, H, feats, timeNow);
           else if (p.mode === 'high-graphics-spiral') promise = renderHighGfxSpiralWithFeatures(`spiral|${instanceKey}|${i}`, W, H, feats, timeNow);
-          else if (p.mode === 'high-graphics-cells') promise = renderHighGfxCellsWithFeatures(`cells|${instanceKey}|${i}`, W, H, feats, timeNow);
+          else if (p.mode === 'high-graphics-cells') {
+            // Use p.colors if present, else fallback to p.color for all
+            const colors = p.colors
+              ? { center: p.colors.high || p.color, lines: p.colors.mid || p.color, bg: p.colors.low || p.color }
+              : { center: p.color, lines: p.color, bg: p.color };
+            promise = renderHighGfxCellsWithFeatures(`cells|${instanceKey}|${i}`, W, H, feats, timeNow, colors);
+          }
           else if (p.mode === 'high-graphics-fog') promise = renderHighGfxFogWithFeatures(`fog|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
           else if (p.mode === 'high-graphics-trunk') promise = renderHighGfxTrunkWithFeatures(`trunk|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });
           else if (p.mode === 'high-graphics-rings') promise = renderHighGfxRingsWithFeatures(`rings|${instanceKey}|${i}`, W, H, feats, timeNow, { view: p.hgView ?? 'top' });

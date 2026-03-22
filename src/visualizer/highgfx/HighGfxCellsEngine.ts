@@ -35,97 +35,94 @@ const vertex = /* glsl */ `
 const fragment = /* glsl */ `
   precision highp float;
   varying vec2 vUv;
-  uniform float u_time; // seconds
-  uniform vec2 u_res;   // resolution
-  uniform float u_energy; // 0..1
-  uniform float u_bass;   // 0..1
-  uniform float u_pulse;  // 0..1
+  uniform float u_time;
+  uniform vec2  u_res;
+  uniform float u_energy;
+  uniform float u_bass;
+  uniform float u_pulse;
+  uniform vec3 u_centerColor;
+  uniform vec3 u_lineColor;
+  uniform vec3 u_bgColor;
 
-  // Hash functions for Voronoi seeds
-  float hash11(float p) {
-    p = fract(p * 0.1031);
-    p *= p + 33.33;
-    p *= p + p;
-    return fract(p);
+  float hash11(float p){ p=fract(p*0.1031); p*=p+33.33; p*=p+p; return fract(p); }
+  vec2  hash21(float p){ return vec2(hash11(p), hash11(p+17.17)); }
+
+  // Smooth noise for membrane wobble
+  float smoothNoise(vec2 p){
+    vec2 i=floor(p); vec2 f=fract(p); f=f*f*(3.0-2.0*f);
+    float a=hash11(i.x+i.y*57.0);
+    float b=hash11(i.x+1.0+i.y*57.0);
+    float c=hash11(i.x+(i.y+1.0)*57.0);
+    float d=hash11(i.x+1.0+(i.y+1.0)*57.0);
+    return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
   }
-  vec2 hash21(float p) {
-    float x = hash11(p);
-    float y = hash11(p + 17.17);
-    return vec2(x, y);
-  }
+  float fbm(vec2 p){ return 0.5*smoothNoise(p)+0.25*smoothNoise(p*2.1)+0.125*smoothNoise(p*4.3); }
 
-  // Simple pseudo-noise based on trig for animation
-  float n1(float t) { return sin(t) * 0.5 + 0.5; }
-
-  // Voronoi cell function: returns distance to nearest and second nearest seeds
+  // Voronoi — few large cells (low scale = fewer tiles)
   vec2 voronoi(vec2 uv, float scale, float time) {
-    vec2 grid = uv * scale; // scale tiles
-    vec2 i = floor(grid);
-    vec2 f = fract(grid);
-    float minDist = 1e9;
-    float secondDist = 1e9;
-    // search neighboring cells for nearest seeds
-    for (int y = -1; y <= 1; y++) {
-      for (int x = -1; x <= 1; x++) {
-        vec2 cell = i + vec2(float(x), float(y));
+    vec2 grid = uv * scale;
+    vec2 gi = floor(grid); vec2 gf = fract(grid);
+    float d1 = 1e9, d2 = 1e9;
+    for (int y = -2; y <= 2; y++) {
+      for (int x = -2; x <= 2; x++) {
+        vec2 cell = gi + vec2(float(x), float(y));
         float idx = cell.x + cell.y * 57.0;
         vec2 rnd = hash21(idx);
-        // animate seed offset with time
-        vec2 seed = vec2(rnd.x + (sin(time + idx) * 0.35), rnd.y + (cos(time * 0.8 + idx) * 0.35));
-        vec2 diff = vec2(float(x), float(y)) + seed - f;
+        // Very slow, independent drift per cell
+        vec2 seed = rnd + 0.18 * vec2(sin(time * 0.18 + idx*1.3), cos(time * 0.14 + idx*0.9));
+        vec2 diff = vec2(float(x), float(y)) + seed - gf;
         float d = dot(diff, diff);
-        if (d < minDist) {
-          secondDist = minDist; minDist = d;
-        } else if (d < secondDist) {
-          secondDist = d;
-        }
+        if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) { d2 = d; }
       }
     }
-    return vec2(sqrt(minDist), sqrt(secondDist));
-  }
-
-  // HSL to RGB
-  vec3 hsl2rgb(vec3 hsl){
-    vec3 rgb = clamp(abs(mod(hsl.x*6.0+vec3(0.0,4.0,2.0),6.0)-3.0)-1.0,0.0,1.0);
-    rgb = rgb*rgb*(3.0-2.0*rgb);
-    return hsl.z + hsl.y*(rgb-0.5)*(1.0-abs(2.0*hsl.z-1.0));
+    return vec2(sqrt(d1), sqrt(d2));
   }
 
   void main() {
-    // Pixel coords and aspect-correct UV
     vec2 uv = vUv;
     float aspect = u_res.x / max(1.0, u_res.y);
     uv.x *= aspect;
 
-    // Audio-driven parameters
-    float wobble = 0.45 + u_energy * 0.90 + u_bass * 0.40; // more wobble
-    float speed  = 0.55 + u_energy * 1.40;                 // faster animation
-    // Edge intensity constant (no beat flash for Cells)
-    float edges  = 0.25;                                   // edge intensity
+    // Extremely slow global drift — microscope slide movement
+    uv += vec2(u_time * 0.008, u_time * 0.004);
 
-    // Subtle global drift to give sense of movement through cells
-    uv += vec2(u_time * 0.03, u_time * 0.005);
-    float hue    = 0.55 + u_energy * 0.20 + u_bass * 0.10; // base hue
+    // Low scale = few large biological cells (6–8 visible on screen)
+    float scale = 3.8;
+    vec2 vd = voronoi(uv, scale, u_time);
+    float cell  = vd.x;
+    float ridge = vd.y - vd.x; // border between cells
 
-    // Increase scale for more compact/smaller cells
-    vec2 vd = voronoi(uv, 22.0, u_time * speed + wobble);
-    float cell = vd.x;            // distance to nearest
-    float ridge = vd.y - vd.x;    // distance difference: highlights edges between nearest & second nearest
+    // FBM noise for organic membrane texture
+    float membrane = fbm(uv * 4.5 + u_time * 0.04);
 
-    // Color mapping
-    float edgeShade = smoothstep(0.0, 0.25, ridge);
-    float fillShade = smoothstep(0.9, 0.0, cell);
+    // --- Cell body ---
+    // translucent interior, tinted by u_panelColor
+    float bodyMask = smoothstep(0.55, 0.25, cell);
+      vec3 baseBodyColor = vec3(0.04, 0.14, 0.18) + membrane * 0.06 * vec3(0.2, 0.8, 0.7);
+      vec3 bodyColor = mix(u_bgColor, u_lineColor, 0.2) + membrane * 0.04 * u_lineColor;
 
-    float l = mix(0.25, 0.65, fillShade);
-    float s = mix(0.6, 0.95, edgeShade);
-    vec3 rgb = hsl2rgb(vec3(hue, s, l));
+    // --- Membrane / edge glow ---
+    float edgeMask = smoothstep(0.22, 0.04, ridge);
+    float edgeGlow = edgeMask * (0.6 + u_energy * 0.4 + u_pulse * 0.5);
+      vec3 edgeColor = u_lineColor * edgeGlow;
 
-    // Edge glow on pulses
-    float glow = smoothstep(0.0, 0.12, ridge) * edges; // no pulse contribution
-    rgb += glow * vec3(1.0, 1.0, 1.0);
+    // --- Nucleus ---
+    float nucleusMask = smoothstep(0.18, 0.04, cell);
+    float nucleusPulse = nucleusMask * (0.35 + u_bass * 0.55 + u_pulse * 0.4);
+      vec3 nucleusColor = u_centerColor * nucleusPulse;
 
-    // Output with alpha for compositing
-    gl_FragColor = vec4(rgb, 0.95);
+    // --- Compose ---
+    vec3 col = bodyColor * bodyMask + edgeColor + nucleusColor;
+
+    // Use user background color
+    col = mix(u_bgColor, col, clamp(bodyMask + edgeMask * 0.5, 0.0, 1.0));
+
+    // Gentle vignette
+    vec2 vuv = vUv - 0.5;
+    float vign = 1.0 - dot(vuv, vuv) * 1.6;
+    col *= clamp(vign, 0.0, 1.0);
+
+    gl_FragColor = vec4(col, 0.97);
   }
 `;
 
@@ -135,6 +132,7 @@ export async function renderHighGfxCellsWithFeatures(
   height: number,
   features: AudioFeatures,
   nowSec: number,
+  colors?: { center: string; lines: string; bg: string },
 ): Promise<HTMLCanvasElement> {
   let eng = engines.get(key);
   const W = Math.max(1, Math.floor(width));
@@ -164,6 +162,9 @@ export async function renderHighGfxCellsWithFeatures(
         u_energy: { value: 0 },
         u_bass: { value: 0 },
         u_pulse: { value: 0 },
+          u_centerColor: { value: new THREE.Color(0.3, 0.9, 0.85) },
+          u_lineColor: { value: new THREE.Color(0.15, 0.85, 0.75) },
+          u_bgColor: { value: new THREE.Color(0.04, 0.14, 0.18) },
       },
     });
 
@@ -172,7 +173,7 @@ export async function renderHighGfxCellsWithFeatures(
 
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 0.8, 0.5, 0.85);
+    const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 0.55, 0.6, 0.75);
     composer.addPass(bloom);
 
     eng = { canvas, renderer, scene, camera, composer, mesh: quad, material };
@@ -185,6 +186,7 @@ export async function renderHighGfxCellsWithFeatures(
     (eng.material.uniforms.u_res.value as THREE.Vector2).set(W, H);
   }
 
+
   // Update uniforms from audio features
   const energy = THREE.MathUtils.clamp(features.energy, 0, 1);
   const bass = THREE.MathUtils.clamp(features.bassLevel, 0, 1);
@@ -193,6 +195,15 @@ export async function renderHighGfxCellsWithFeatures(
   (eng.material.uniforms.u_energy as any).value = energy;
   (eng.material.uniforms.u_bass as any).value = bass;
   (eng.material.uniforms.u_pulse as any).value = pulse;
+  // Set color uniforms every frame, with fallback to default if missing
+  const center = (colors && colors.center) ? colors.center : '#ffffff';
+  const lines = (colors && colors.lines) ? colors.lines : '#00ffff';
+  const bg = (colors && colors.bg) ? colors.bg : '#000000';
+  // Debug log
+  // console.log('Cells colors:', { center, lines, bg });
+  (eng.material.uniforms.u_centerColor.value as THREE.Color).set(center);
+  (eng.material.uniforms.u_lineColor.value as THREE.Color).set(lines);
+  (eng.material.uniforms.u_bgColor.value as THREE.Color).set(bg);
 
   eng.composer.render();
   return eng.canvas;

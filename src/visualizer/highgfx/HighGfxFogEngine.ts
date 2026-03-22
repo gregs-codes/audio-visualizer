@@ -53,20 +53,46 @@ const fragment = `
     // side tilt skew
     uv.y = mix(uv.y, uv.y * 0.85 + (uv.x - 0.5*aspect) * 0.06, u_viewTilt);
     float beat = smoothstep(0.0, 1.0, u_pulse);
-    float speed = (0.06 + u_bass * 0.18 + u_energy * 0.18) * (0.35 + 0.65 * beat);
-    // Two-layer FBM with opposite drifts for parallax
+    // SLOW, CONTINUOUS fog movement (not music-reactive)
+    float speed = 0.008;
+    // Two-layer FBM with steady drift for parallax
     vec2 p1 = uv * 2.2 + vec2(u_time * speed, -u_time * speed * 0.55);
     vec2 p2 = (uv + vec2(0.2, -0.15)) * 3.4 + vec2(-u_time * speed * 0.65, u_time * speed * 0.4);
     float n1 = fbm(p1);
     float n2 = fbm(p2);
     float fogField = clamp(0.5 * n1 + 0.5 * n2, 0.0, 1.0);
+    // Add random fade in/out to fog
+    float fadeNoise = 0.5 + 0.5 * sin(u_time * 0.13 + uv.x * 7.0 + uv.y * 5.0 + fbm(uv * 3.0 + u_time * 0.07));
+    fogField *= fadeNoise;
     // Subtle directional gradient (light from top-right)
     float lightDir = clamp(0.6 + (uv.x/aspect) * 0.12 + (1.0-uv.y) * 0.18, 0.0, 1.0);
     float density = smoothstep(0.35, 0.9, fogField) * (0.8 + 0.2 * lightDir);
-    // Audio-reactive thickness
-    float thickness = 0.50 + (u_bass * 0.18 + u_energy * 0.18) * (0.3 + 0.7 * beat);
+    // Static fog thickness
+    float thickness = 0.50;
     vec3 color = ramp(density);
     float alpha = clamp(thickness * density, 0.0, 0.85);
+
+    // Add more, smaller, fading bright spots on rhythm/beat
+    float spot = 0.0;
+    float spotCount = 9.0 + floor(u_bass * 2.0) + floor(u_energy * 2.0); // more spots
+    for (int i = 0; i < 16; i++) {
+      if (float(i) >= spotCount) break;
+      // Place spots at pseudo-random locations, animate with time
+      float angle = 6.2831 * (float(i) / spotCount) + u_time * (0.13 + float(i)*0.11);
+      float rad = 0.22 + 0.18 * float(i);
+      vec2 center = vec2(0.5, 0.5) + rad * vec2(cos(angle), sin(angle));
+      float d = length(uv - center);
+      float s = exp(-70.0 * d * d); // smaller spots
+      // Spots are only visible on beat
+      float spotAlpha = beat * smoothstep(0.10, 0.0, d);
+      spot += s * spotAlpha;
+      // Fog reflects spot light locally (add to color/alpha)
+      color += vec3(1.0, 0.95, 0.85) * s * spotAlpha * 0.7;
+      alpha = clamp(alpha + s * spotAlpha * 0.25, 0.0, 1.0);
+    }
+    // Spots themselves are only visible on beat
+    color += vec3(1.0, 0.95, 0.85) * spot * beat;
+
     gl_FragColor = vec4(color, alpha);
   }
 `;
