@@ -40,8 +40,9 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [theme, setTheme] = useState('dark');
 	const [color, setColor] = useState('#a0b4f7');
 	// Background controls
-	const [bgMode, setBgMode] = useState<'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'>('none');
+	const [bgMode, setBgMode] = useState<'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'|'bg-viz-cells'>('none');
 	const [bgColor, setBgColor] = useState<string>('#101321');
+	const [bgCellsColors, setBgCellsColors] = useState<{ center: string; lines: string; bg: string }>({ center: '#f7e060', bg: '#1a2a2a', lines: '#8ecfcf' });
 	const [bgImageUrl, setBgImageUrl] = useState<string>('');
 	const [bgFit, setBgFit] = useState<'cover'|'contain'|'stretch'>('cover');
 	const [bgOpacity, setBgOpacity] = useState<number>(1);
@@ -741,6 +742,8 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				setBgFit={v => setBgFit(v as typeof bgFit)}
 				bgOpacity={bgOpacity}
 				setBgOpacity={setBgOpacity}
+				bgCellsColors={bgCellsColors}
+				setBgCellsColors={setBgCellsColors}
 			/>
 			<PanelsSettings
 				openSections={openSections}
@@ -1091,6 +1094,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 									bgImageUrl={bgImageUrl}
 									bgFit={bgFit as 'cover'|'contain'|'stretch'|undefined}
 									bgOpacity={bgOpacity}
+									bgCellsColors={bgCellsColors}
 									title={title}
 									titlePos={titlePos}
 									titleColor={titleColor}

@@ -19,12 +19,15 @@ interface GeneralSettingsProps {
   setBgFit: (v: string) => void;
   bgOpacity: number;
   setBgOpacity: (v: number) => void;
+  bgCellsColors: { center: string; lines: string; bg: string };
+  setBgCellsColors: (v: { center: string; lines: string; bg: string }) => void;
 }
 
 export function GeneralSettings(props: GeneralSettingsProps) {
   const {
     openSections, toggleSection, layout, setLayout, theme, setTheme, color, setColor,
-    bgMode, setBgMode, bgColor, setBgColor, bgImageUrl, setBgImageUrl, bgFit, setBgFit, bgOpacity, setBgOpacity
+    bgMode, setBgMode, bgColor, setBgColor, bgImageUrl, setBgImageUrl, bgFit, setBgFit, bgOpacity, setBgOpacity,
+    bgCellsColors, setBgCellsColors
   } = props;
   return (
     <div className="section">
@@ -73,6 +76,7 @@ export function GeneralSettings(props: GeneralSettingsProps) {
                   <option value='bg-viz-bars'>Viz BG (Bars)</option>
                   <option value='bg-viz-radial'>Viz BG (Radial)</option>
                   <option value='bg-viz-orbs'>Viz BG (Orbs)</option>
+                  <option value='bg-viz-cells'>Viz BG (Cells / HG)</option>
                 </optgroup>
               </select>
             </label>
@@ -95,6 +99,22 @@ export function GeneralSettings(props: GeneralSettingsProps) {
                   <span className="swatch" style={{ background: bgColor }} />
                 </label>
               </>
+            )}
+            {bgMode === 'bg-viz-cells' && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                <label style={{ fontSize: 11 }}>Background
+                  <input type='color' value={bgCellsColors.bg} onChange={e => setBgCellsColors({ ...bgCellsColors, bg: e.target.value })} />
+                  <span className="swatch" style={{ background: bgCellsColors.bg, width: 12, height: 12 }} />
+                </label>
+                <label style={{ fontSize: 11 }}>Lines
+                  <input type='color' value={bgCellsColors.lines} onChange={e => setBgCellsColors({ ...bgCellsColors, lines: e.target.value })} />
+                  <span className="swatch" style={{ background: bgCellsColors.lines, width: 12, height: 12 }} />
+                </label>
+                <label style={{ fontSize: 11 }}>Center
+                  <input type='color' value={bgCellsColors.center} onChange={e => setBgCellsColors({ ...bgCellsColors, center: e.target.value })} />
+                  <span className="swatch" style={{ background: bgCellsColors.center, width: 12, height: 12 }} />
+                </label>
+              </div>
             )}
             {bgMode === 'image' && (
               <>

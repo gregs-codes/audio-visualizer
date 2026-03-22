@@ -114,11 +114,12 @@ interface VisualizerPanelProps {
   previewSize: { w: number; h: number };
   effectiveSize: { w: number; h: number };
   audioEl: HTMLAudioElement | null;
-  bgMode: 'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'|undefined;
+  bgMode: 'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'|'bg-viz-cells'|undefined;
   bgColor: string;
   bgImageUrl: string;
   bgFit: 'cover'|'contain'|'stretch'|undefined;
   bgOpacity: number;
+  bgCellsColors?: { center: string; lines: string; bg: string };
   title: string;
   titlePos: any;
   titleColor: string;
@@ -161,6 +162,7 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
   bgImageUrl,
   bgFit,
   bgOpacity,
+  bgCellsColors,
   title,
   titlePos,
   titleColor,
@@ -331,6 +333,7 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
             backgroundOpacity={bgOpacity}
             bgMode={bgMode}
             instanceKey={'preview'}
+            bgCellsColors={bgCellsColors}
             overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
             overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
             overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
@@ -362,6 +365,7 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
           backgroundOpacity={bgOpacity}
           bgMode={bgMode}
           instanceKey={'export'}
+          bgCellsColors={bgCellsColors}
           overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
           overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
           overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}

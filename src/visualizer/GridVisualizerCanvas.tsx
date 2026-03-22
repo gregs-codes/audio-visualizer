@@ -40,7 +40,8 @@ type Props = {
   backgroundImageUrl?: string; // optional image background (local URL)
   backgroundFit?: 'cover'|'contain'|'stretch';
   backgroundOpacity?: number; // 0..1
-  bgMode?: 'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs';
+  bgMode?: 'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'|'bg-viz-cells';
+  bgCellsColors?: { center: string; lines: string; bg: string };
   overlayTitle?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayDescription?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayCountdown?: { enabled: boolean; position: 'lt'|'ct'|'rt'|'bl'|'br'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
@@ -74,10 +75,12 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
   bgParallax = false,
   parallaxEngine = undefined,
   instanceKey = 'main',
+  bgCellsColors,
 }, ref) {
   const innerRef = useRef<HTMLCanvasElement>(null);
   const dancerFrameRef = useRef<HTMLCanvasElement | null>(null);
   const hgFramesRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const bgCellsFrameRef = useRef<HTMLCanvasElement | null>(null);
   const bgImgRef = useRef<HTMLImageElement | null>(null);
   const bgLoadedRef = useRef<boolean>(false);
   // VU meter state refs for smooth animation
@@ -257,6 +260,21 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         if (bgMode === 'bg-viz-bars') bgVizBarsAnimate(ctx, baseFreq, timeNow * 1000, c.width, c.height, tint);
         else if (bgMode === 'bg-viz-radial') bgVizRadialAnimate(ctx, baseFreq, timeNow * 1000, c.width, c.height, tint);
         else bgVizOrbsAnimate(ctx, baseFreq, timeNow * 1000, c.width, c.height, tint);
+      } else if (bgMode === 'bg-viz-cells') {
+        // Draw cached frame from previous tick synchronously so it appears behind everything
+        if (bgCellsFrameRef.current) {
+          try {
+            ctx.save();
+            ctx.drawImage(bgCellsFrameRef.current, 0, 0, c.width, c.height);
+            ctx.restore();
+          } catch {}
+        }
+        // Schedule next frame update asynchronously
+        const feats = mainDetector.update(1/60);
+        const cellColors = bgCellsColors ?? { center: '#f7e060', lines: '#8ecfcf', bg: '#1a2a2a' };
+        renderHighGfxCellsWithFeatures(`bg-cells|${instanceKey}`, c.width, c.height, feats, timeNow, cellColors)
+          .then((off) => { bgCellsFrameRef.current = off; })
+          .catch(() => {});
       } else {
         if (backgroundColor) {
           ctx.save();
@@ -524,7 +542,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
     };
     raf = requestAnimationFrame(render);
     return () => { cancelled = true; cancelAnimationFrame(raf); };
-  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU, overlaySubtitle, exportPhase, bgParallax, parallaxEngine]);
+  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU, overlaySubtitle, exportPhase, bgParallax, parallaxEngine, bgCellsColors]);
 
   return <canvas ref={innerRef} width={width} height={height} />;
 });
