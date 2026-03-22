@@ -33,12 +33,14 @@ export const VISUALIZER_CATEGORIES = {
     'high-graphics-hex-paths',
     'high-graphics-net',
     'high-graphics-dot-matrix-3d',
+    'high-graphics-anomaly',
   ],
   'Hexagon & Networks': [
     'hexagon-visualizer',
     'triangular-net',
   ],
   'Bars & Waveforms': [
+    'spectrum-mirror-4way',
     'vertical-bars',
     'horizontal-bars',
     'mirrored-bars',
@@ -53,11 +55,13 @@ export const VISUALIZER_CATEGORIES = {
   'Circular & Radial': [
     'circular-bars',
     'rotating-circular-bars',
+    'circular-minimal',
     'radial-waveform',
     'pulse-circle',
     'concentric-rings',
     'expanding-wave-rings',
     'smooth-concentric-equalizer',
+    'circular-center-text',
   ],
   'Particles & Dots': [
     'particle-field',
@@ -119,7 +123,9 @@ export const LABELS: Record<string, string> = {
   'high-graphics-hex-paths': 'HG: Hex Paths (WebGL)',
   'high-graphics-net': 'HG: Net (WebGL)',
   'high-graphics-dot-matrix-3d': 'HG: Dot Matrix 3D (WebGL)',
+  'high-graphics-anomaly': 'HG: Anomaly Orb (WebGL)',
   'triangular-net': 'Triangular Net',
+  'spectrum-mirror-4way': 'Spectrum Mirror (4-Way)',
   'vertical-bars': 'Vertical Bars',
   'horizontal-bars': 'Horizontal Bars',
   'mirrored-bars': 'Mirrored Bars (center out)',
@@ -127,6 +133,7 @@ export const LABELS: Record<string, string> = {
   'dual-wave': 'Dual Wave (left/right)',
   'circular-bars': 'Circular Bars',
   'rotating-circular-bars': 'Rotating Circular Bars',
+  'circular-minimal': 'Circular Minimal (dots + bars)',
   'radial-waveform': 'Radial Waveform',
   'pulse-circle': 'Pulse Circle (bass-driven)',
   'concentric-rings': 'Concentric Rings',
@@ -143,6 +150,7 @@ export const LABELS: Record<string, string> = {
   'starburst': 'Starburst',
   'smooth-blob-morph': 'Smooth Blob Morph',
   'smooth-concentric-equalizer': 'Smooth Concentric Equalizer',
+  'circular-center-text': 'Circular: Dots + Bars (Center Text)',
   'line-mesh': 'Line Mesh',
   'particle-mesh': 'Particle Mesh',
   'orbital-particles': 'Orbital Particles',
@@ -339,6 +347,65 @@ const circularBars = (r: RenderContext) => {
     }
   }
   
+  ctx.restore();
+};
+
+const circularMinimal = (r: RenderContext) => {
+  const { ctx, x, y, w, h, panel, freq, energy } = r;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const minD = Math.min(w, h);
+  const baseRadius = minD * 0.28;
+  const maxBarLen = minD * 0.20;
+  const numBars = 128;
+  const color = panel.color;
+
+  ctx.save();
+
+  // Base circle
+  ctx.beginPath();
+  ctx.arc(cx, cy, baseRadius, 0, Math.PI * 2);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.25;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  for (let i = 0; i < numBars; i++) {
+    const angle = (i / numBars) * Math.PI * 2 - Math.PI / 2; // top-start
+    const freqIdx = Math.floor((i / numBars) * (freq.length * 0.7));
+    const v = freq[freqIdx] / 255;
+    const barLen = maxBarLen * v * (0.4 + energy * 0.6);
+    const alpha = 0.25 + v * 0.75;
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+
+    if (cosA < 0) {
+      // Left half → dot at tip
+      if (barLen > 1) {
+        ctx.beginPath();
+        ctx.arc(
+          cx + cosA * (baseRadius + barLen),
+          cy + sinA * (baseRadius + barLen),
+          Math.max(1, 1.5), 0, Math.PI * 2
+        );
+        ctx.fillStyle = color;
+        ctx.globalAlpha = alpha;
+        ctx.fill();
+      }
+    } else {
+      // Right half → thin radial bar
+      ctx.beginPath();
+      ctx.moveTo(cx + cosA * baseRadius, cy + sinA * baseRadius);
+      ctx.lineTo(cx + cosA * (baseRadius + barLen), cy + sinA * (baseRadius + barLen));
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = 'round';
+      ctx.globalAlpha = alpha;
+      ctx.stroke();
+    }
+  }
+
   ctx.restore();
 };
 
@@ -1656,9 +1723,117 @@ const dotMatrix3D = ({ ctx, x, y, w, h, freq, panel }: RenderContext) => {
   ctx.restore();
 };
 
+// Circular visualizer: dots on left half, bars on right half — minimal "vinyl" style
+const circularCenterText = ({ ctx, x, y, w, h, panel, freq }: RenderContext) => {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const radius = Math.min(w, h) * 0.30;
+  const barMaxLen = Math.min(w, h) * 0.22;
+  const dotMaxR = Math.min(w, h) * 0.018;
+  const N = 72;
+  const lineW = Math.max(1, w / 320);
+
+  ctx.save();
+
+  // Faint base ring
+  ctx.globalAlpha = 0.18;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.strokeStyle = panel.color;
+  ctx.lineWidth = lineW;
+  ctx.stroke();
+
+  // Left half: dots at ring circumference (angles π/2 → 3π/2, bass range)
+  for (let i = 0; i < N; i++) {
+    const angle = Math.PI / 2 + (i / (N - 1)) * Math.PI;
+    const freqIdx = Math.floor((i / N) * (freq.length * 0.5));
+    const v = freq[freqIdx] / 255;
+    const dotR = Math.max(1.5, v * dotMaxR);
+    ctx.globalAlpha = 0.25 + v * 0.75;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius, dotR, 0, Math.PI * 2);
+    ctx.fillStyle = pickColor(freqIdx / freq.length, panel.colors, panel.color);
+    ctx.fill();
+  }
+
+  // Right half: bars extending outward (angles -π/2 → π/2, treble range)
+  for (let i = 0; i < N; i++) {
+    const angle = -Math.PI / 2 + (i / (N - 1)) * Math.PI;
+    const freqIdx = Math.min(freq.length - 1, Math.floor(freq.length * 0.5 + (i / N) * freq.length * 0.5));
+    const v = freq[freqIdx] / 255;
+    const barLen = Math.max(2, v * barMaxLen);
+    const ix = cx + Math.cos(angle) * radius;
+    const iy = cy + Math.sin(angle) * radius;
+    ctx.globalAlpha = 0.25 + v * 0.75;
+    ctx.beginPath();
+    ctx.moveTo(ix, iy);
+    ctx.lineTo(cx + Math.cos(angle) * (radius + barLen), cy + Math.sin(angle) * (radius + barLen));
+    ctx.strokeStyle = pickColor(freqIdx / freq.length, panel.colors, panel.color);
+    ctx.lineWidth = lineW;
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+const spectrumMirror4Way = (r: RenderContext) => {
+  const { ctx, x, y, w, h, freq, energy } = r;
+
+  ctx.save();
+
+  // Dark background
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x, y, w, h);
+
+  const numBars = 180;
+  const halfW = w / 2;
+  const cx = x + halfW;
+  const barW = halfW / numBars;
+  const maxBarH = h / 2;
+
+  for (let i = 0; i < numBars; i++) {
+    const freqIdx = Math.floor((i / numBars) * freq.length * 0.85);
+    const v = freq[freqIdx] / 255;
+    const barH = Math.max(1, v * maxBarH * (0.6 + energy * 0.4));
+
+    // Color: outer edge = green (hue 120), inner/center = red (hue 0)
+    const ratio = i / numBars; // 0=outer edge, 1=center
+    const hue = 120 - ratio * 120; // 120 (green) → 0 (red)
+    const sat = 90 + v * 10;
+    const lit = 40 + v * 15;
+    const color = `hsl(${hue}, ${sat}%, ${lit}%)`;
+
+    const bxRight = cx + i * barW;
+    const bxLeft  = cx - (i + 1) * barW;
+
+    ctx.fillStyle = color;
+    // Top-right
+    ctx.fillRect(bxRight, y, barW - 0.5, barH);
+    // Bottom-right (mirror vertical)
+    ctx.fillRect(bxRight, y + h - barH, barW - 0.5, barH);
+    // Top-left (mirror horizontal)
+    ctx.fillRect(bxLeft, y, barW - 0.5, barH);
+    // Bottom-left
+    ctx.fillRect(bxLeft, y + h - barH, barW - 0.5, barH);
+  }
+
+  // Warm center glow
+  const glowR = Math.min(w, h) * (0.12 + energy * 0.08);
+  const grd = ctx.createRadialGradient(cx, y + h / 2, 0, cx, y + h / 2, glowR * 3);
+  grd.addColorStop(0,   `rgba(255, 80,  0, ${0.25 + energy * 0.25})`);
+  grd.addColorStop(0.4, `rgba(255, 140, 0, ${0.08 + energy * 0.10})`);
+  grd.addColorStop(1,   'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(x, y, w, h);
+
+  ctx.restore();
+};
+
 // Registry mapping
 export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   // Core
+  'spectrum-mirror-4way': spectrumMirror4Way,
   'vertical-bars': verticalBars,
   'horizontal-bars': horizontalBars,
   'mirrored-bars': mirroredBars,
@@ -1713,6 +1888,7 @@ export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   },
   'circular-bars': circularBars,
   'rotating-circular-bars': rotatingCircularBars,
+  'circular-minimal': circularMinimal,
   'radial-waveform': radialWaveform,
   'pulse-circle': pulseCircle,
   'concentric-rings': concentricRings,
@@ -1722,6 +1898,7 @@ export const VISUALIZERS: Record<VisualizerMode, (r: RenderContext) => void> = {
   'smooth-dotted-wave': smoothDottedWave,
   'smooth-blob-morph': smoothBlobMorph,
   'smooth-concentric-equalizer': smoothConcentricEqualizer,
+  'circular-center-text': circularCenterText,
   // Unique particle visualizers
   'particle-field': particleFieldVisualizer,
   'particle-burst': particleBurst,

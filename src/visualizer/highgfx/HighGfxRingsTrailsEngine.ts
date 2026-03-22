@@ -96,11 +96,11 @@ export async function renderHighGfxRingsTrailsWithFeatures(
   // View tilt
   const view = opts?.view ?? 'top';
   if (view === 'top') {
-    eng.camera.position.set(0, 1.0, 8);
-    eng.camera.fov = 55;
+    eng.camera.position.set(0, 3.5, 7);
+    eng.camera.fov = 58;
   } else {
-    eng.camera.position.set(4, 1, 6);
-    eng.camera.fov = 55;
+    eng.camera.position.set(5, 2, 5);
+    eng.camera.fov = 58;
   }
   eng.camera.lookAt(new THREE.Vector3(0, 0, 0));
   eng.camera.updateProjectionMatrix();

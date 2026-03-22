@@ -111,6 +111,12 @@ export function PanelsSettings({ openSections, toggleSection, panels, setPanels,
                     <option value='side'>Side</option>
                   </select>
                 )}
+                {p.mode === 'high-graphics-anomaly' && (
+                  <select value={p.hgView ?? 'top'} onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, hgView: e.target.value } : x))}>
+                    <option value='top'>Front</option>
+                    <option value='side'>Side</option>
+                  </select>
+                )}
                 <input type='color' value={p.color} onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, color: e.target.value } : x))} />
                 <span className="swatch" style={{ background: p.color }} />
               </div>
@@ -119,6 +125,28 @@ export function PanelsSettings({ openSections, toggleSection, panels, setPanels,
                   <label>Low <input type='color' value={p.colors?.low ?? defaultPanelColors.low} onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, colors: { ...(x.colors ?? defaultPanelColors), low: e.target.value } } : x))} /> <span className="swatch" style={{ background: p.colors?.low ?? defaultPanelColors.low, width: 12, height: 12 }} /></label>
                   <label>Mid <input type='color' value={p.colors?.mid ?? defaultPanelColors.mid} onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, colors: { ...(x.colors ?? defaultPanelColors), mid: e.target.value } } : x))} /> <span className="swatch" style={{ background: p.colors?.mid ?? defaultPanelColors.mid, width: 12, height: 12 }} /></label>
                   <label>High <input type='color' value={p.colors?.high ?? defaultPanelColors.high} onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, colors: { ...(x.colors ?? defaultPanelColors), high: e.target.value } } : x))} /> <span className="swatch" style={{ background: p.colors?.high ?? defaultPanelColors.high, width: 12, height: 12 }} /></label>
+                </div>
+              )}
+              {p.mode === 'high-graphics-anomaly' && (
+                <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
+                  <div className="field-row" style={{ alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 60 }}>Rotation</span>
+                    <input type="range" min={0} max={5} step={0.1} value={p.hgRotation ?? 1.0} style={{ flex: 1 }}
+                      onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, hgRotation: parseFloat(e.target.value) } : x))} />
+                    <span style={{ fontSize: 11, minWidth: 28, textAlign: 'right' }}>{(p.hgRotation ?? 1.0).toFixed(1)}</span>
+                  </div>
+                  <div className="field-row" style={{ alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 60 }}>Resolution</span>
+                    <input type="range" min={12} max={64} step={4} value={p.hgResolution ?? 32} style={{ flex: 1 }}
+                      onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, hgResolution: parseInt(e.target.value) } : x))} />
+                    <span style={{ fontSize: 11, minWidth: 28, textAlign: 'right' }}>{p.hgResolution ?? 32}</span>
+                  </div>
+                  <div className="field-row" style={{ alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 60 }}>Distortion</span>
+                    <input type="range" min={0} max={3} step={0.1} value={p.hgDistortion ?? 1.0} style={{ flex: 1 }}
+                      onChange={e => setPanels(old => old.map((x, idx) => idx === i ? { ...x, hgDistortion: parseFloat(e.target.value) } : x))} />
+                    <span style={{ fontSize: 11, minWidth: 28, textAlign: 'right' }}>{(p.hgDistortion ?? 1.0).toFixed(1)}</span>
+                  </div>
                 </div>
               )}
             </div>

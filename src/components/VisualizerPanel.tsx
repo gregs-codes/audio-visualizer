@@ -123,10 +123,14 @@ interface VisualizerPanelProps {
   titlePos: any;
   titleColor: string;
   titleFx: any;
+  titleOffsetX?: number;
+  titleOffsetY?: number;
   desc: string;
   descPos: any;
   descColor: string;
   descFx: any;
+  descOffsetX?: number;
+  descOffsetY?: number;
   countPos: any;
   countColor: string;
   countFx: any;
@@ -165,10 +169,14 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
   titlePos,
   titleColor,
   titleFx,
+  titleOffsetX = 0,
+  titleOffsetY = 0,
   desc,
   descPos,
   descColor,
   descFx,
+  descOffsetX = 0,
+  descOffsetY = 0,
   countPos,
   countColor,
   countFx,
@@ -217,10 +225,14 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
     titlePos: titlePos,
     titleColor: titleColor,
     titleFx: titleFx,
+    titleOffsetX: titleOffsetX,
+    titleOffsetY: titleOffsetY,
     desc: desc,
     descPos: descPos,
     descColor: descColor,
     descFx: descFx,
+    descOffsetX: descOffsetX,
+    descOffsetY: descOffsetY,
     countPos: countPos,
     countColor: countColor,
     countFx: countFx,
@@ -331,8 +343,8 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
             backgroundOpacity={bgOpacity}
             bgMode={bgMode}
             instanceKey={'preview'}
-            overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
-            overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
+            overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx, offsetX: titleOffsetX, offsetY: titleOffsetY }}
+            overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx, offsetX: descOffsetX, offsetY: descOffsetY }}
             overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
             overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
             overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
