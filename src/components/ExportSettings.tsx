@@ -23,6 +23,7 @@ interface ExportSettingsProps {
   exportProgress: number;
   exportError: string;
   runExport: () => Promise<Blob | null>;
+  stopExport: () => void;
 }
 
 export function ExportSettings(props: ExportSettingsProps) {
@@ -31,14 +32,14 @@ export function ExportSettings(props: ExportSettingsProps) {
     aspect, setAspect, res, setRes, fps, setFps,
     outputFormat, setOutputFormat, vBitrate, setVBitrate, aBitrate, setABitrate,
     muteDuringExport, setMuteDuringExport, effectiveSize,
-    exporting, exportProgress, exportError, runExport
+    exporting, exportProgress, exportError, runExport, stopExport
   } = props;
   if (!ready) return null;
   return (
     <div className="section">
       <div className="section-header" onClick={() => toggleSection('export')}>
         <span className={`chevron ${openSections.export ? 'open' : ''}`}>▶</span>
-        Export
+        UI Export
       </div>
       {openSections.export && (
         <div className="section-body">
@@ -85,18 +86,38 @@ export function ExportSettings(props: ExportSettingsProps) {
             <label><input type='checkbox' checked={muteDuringExport} onChange={e => setMuteDuringExport(e.target.checked)} /> Mute during export</label>
             <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 'auto' }}>{effectiveSize.w}×{effectiveSize.h}</span>
           </div>
-          <button disabled={exporting} onClick={async () => {
-            const blob = await runExport();
-            if (blob) {
-              const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `visualizer_${res}_${aspect.replace(':','-')}.webm`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-            }
-          }}>Export</button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              disabled={exporting}
+              style={{ flex: 1 }}
+              onClick={async () => {
+                const blob = await runExport();
+                if (blob) {
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `visualizer_${res}_${aspect.replace(':','-')}.webm`;
+                  document.body.appendChild(a); a.click(); a.remove();
+                  URL.revokeObjectURL(url);
+                }
+              }}
+            >UI Export</button>
+            {exporting && (
+              <button
+                onClick={stopExport}
+                style={{ background: '#3a1a1a', color: '#ff6b6b', borderColor: '#ff6b6b', fontWeight: 600, padding: '0 12px', flexShrink: 0 }}
+                title="Stop export"
+              >■ Stop</button>
+            )}
+          </div>
           {exporting && (
-            <div className="field-row">
-              <div style={{ flex: 1, height: 6, background: 'var(--panelBorder)', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{ width: `${Math.round(exportProgress * 100)}%`, height: '100%', background: 'var(--accent)', transition: 'width 0.3s' }} />
+            <div style={{ marginTop: 4 }}>
+              <div className="field-row" style={{ marginBottom: 3 }}>
+                <div style={{ flex: 1, height: 6, background: 'var(--panelBorder)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.round(exportProgress * 100)}%`, height: '100%', background: 'var(--accent)', transition: 'width 0.3s' }} />
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--muted)', width: 32, textAlign: 'right', flexShrink: 0 }}>{Math.round(exportProgress * 100)}%</span>
               </div>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>{Math.round(exportProgress * 100)}%</span>
             </div>
           )}
           {exportError && <div style={{ color: '#ff6b6b', fontSize: 11 }}>{exportError}</div>}

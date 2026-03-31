@@ -151,7 +151,7 @@ const HexagonVisualizer: React.FC<HexagonVisualizerProps> = ({
       });
       animationId = requestAnimationFrame(draw);
     }
-    draw();
+    animationId = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animationId);
   }, [analyser, width, height, bgImgEl, backgroundColor, backgroundOpacity, backgroundFit]);
 
@@ -172,6 +172,7 @@ const HexagonVisualizer: React.FC<HexagonVisualizerProps> = ({
           display: 'block',
           objectFit: 'cover',
         }}
+        data-main-visualizer="1"
       />
     </div>
   );

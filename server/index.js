@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import puppeteer from 'puppeteer';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import ffmpeg from 'fluent-ffmpeg';
+import { createJob, updateJob, getJob, listJobs, countJobs } from './db.js';
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
@@ -24,11 +25,14 @@ app.use(cors());
 // --- Active render tracking (singleton: only one render at a time) ---
 let activeBrowser = null;
 let activeRenderAborted = false;
+let activeJobId = null;
 
 async function killActiveBrowser() {
   if (activeBrowser) {
     console.log('Killing previous render browser...');
     activeRenderAborted = true;
+    if (activeJobId) { try { updateJob(activeJobId, { status: 'aborted' }); } catch {} }
+    activeJobId = null;
     try { await activeBrowser.close(); } catch {}
     activeBrowser = null;
   }
@@ -36,7 +40,7 @@ async function killActiveBrowser() {
 
 // --- Live log broadcasting ---
 const logClients = new Set();
-const MAX_LOG_HISTORY = 200;
+const MAX_LOG_HISTORY = 500;
 const logHistory = [];
 
 function broadcastLog(level, ...args) {
@@ -111,11 +115,49 @@ app.get('/rendered/list', async (req, res) => {
   }
 });
 
+// Map of jobToken -> { resolve, reject, writeStream, filePath } for chunked uploads
+const pendingUploads = new Map();
+
+// POST /upload-render/:token/chunk — receive one raw MediaRecorder chunk, append to disk
+app.post('/upload-render/:token/chunk', express.raw({ type: '*/*', limit: '50mb' }), async (req, res) => {
+  const token = req.params.token;
+  const pending = pendingUploads.get(token);
+  if (!pending) return res.status(404).json({ error: 'unknown token' });
+  // Lazy-init write stream on first chunk
+  if (!pending.writeStream) {
+    await fs.mkdir(TMP_DIR, { recursive: true });
+    pending.filePath = path.join(TMP_DIR, `render_${token}.webm`);
+    pending.writeStream = fsSync.createWriteStream(pending.filePath);
+    console.log(`[chunk] Opened write stream: ${pending.filePath}`);
+  }
+  await new Promise((resolve, reject) => {
+    pending.writeStream.write(req.body, (err) => err ? reject(err) : resolve());
+  });
+  res.json({ ok: true });
+});
+
+// POST /upload-render/:token/finalize — all chunks received; close stream and unblock render handler
+app.post('/upload-render/:token/finalize', express.json(), async (req, res) => {
+  const token = req.params.token;
+  const pending = pendingUploads.get(token);
+  if (!pending) return res.status(404).json({ error: 'unknown token' });
+  pendingUploads.delete(token);
+  const trimStart = parseFloat(req.body?.trimStart || '0');
+  if (pending.writeStream) {
+    await new Promise((resolve) => pending.writeStream.end(resolve));
+    console.log(`[chunk] Write stream closed: ${pending.filePath}`);
+  }
+  // Respond to browser before advancing server processing so the response arrives before browser.close()
+  res.json({ ok: true });
+  pending.resolve({ filePath: pending.filePath, trimStart });
+});
+
 // POST /render accepts multipart form: file (audio), bgImage (optional image), and other params
 app.post('/render', upload.fields([
   { name: 'file', maxCount: 1 },
   { name: 'bgImage', maxCount: 1 }
 ]), async (req, res) => {
+  let jobId = null;
   try {
     if (!req.files || !req.files['file']) return res.status(400).json({ error: 'file is required' });
 
@@ -125,7 +167,8 @@ app.post('/render', upload.fields([
 
     const {
       aspect = '16:9', res: resolution = '720', fps = '30', codec = 'vp9',
-      vBitrate = '8000', aBitrate = '192', format = 'webm', mode, theme, layout, panels,
+      // Default server output to MP4 for maximum compatibility
+      vBitrate = '8000', aBitrate = '192', format = 'mp4', mode, theme, layout, panels,
       character, animations, dancerSize, dancerPos, showDancer,
       cameraMode, cameraElevationPct, cameraTiltDeg, cameraSpeed, cameraDistance,
       title, titlePos, titleColor, titleFloat, titleBounce, titlePulse,
@@ -133,8 +176,37 @@ app.post('/render', upload.fields([
       showCountdown, countPos, countColor, countFloat, countBounce, countPulse,
       bgMode, bgColor, bgImageUrl: bgImageUrlBody, bgFit, bgOpacity,
       color, showVU,
-      subtitleEnabled, subtitleCues: subtitleCuesJson, subtitlePos, subtitleColor, subtitleOffset, subtitleFontSize,
+      introSecs, outroSecs,
+      subtitleEnabled, subtitleCues, subtitlePos, subtitleColor, subtitleOffset, subtitleFontSize,
     } = req.body || {};
+
+    // Record job in database and track as active
+    jobId = createJob({
+      audioName:  req.files['file'][0].originalname,
+      format,
+      resolution,
+      fps,
+      codec,
+      mode,
+      theme,
+      layout,
+      params: req.body,
+    });
+    console.log(`[db] Created render job #${jobId}`);
+    activeJobId = jobId;
+
+    // Create a one-time upload token so the headless browser can POST the video back directly
+    const jobToken = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const uploadPromise = new Promise((resolve, reject) => {
+      pendingUploads.set(jobToken, { resolve, reject, writeStream: null, filePath: null });
+      // Auto-reject after 12 minutes to prevent memory leaks on hung renders
+      setTimeout(() => {
+        if (pendingUploads.has(jobToken)) {
+          pendingUploads.delete(jobToken);
+          reject(new Error('Upload from headless browser timed out after 12 minutes'));
+        }
+      }, 720_000);
+    });
 
     // Launch headless browser with generous protocol timeout to avoid premature failures
     const browser = await puppeteer.launch({
@@ -208,6 +280,22 @@ app.post('/render', upload.fields([
         try { console.log(`[page] HTTP ${response.status()} ${response.url()}`); } catch {}
       }
     });
+
+    // Save subtitle cues to a temp file so Puppeteer can fetch them,
+    // and also keep a JSON inline copy for robustness.
+    let subtitleUrl = null;
+    const subtitleCuesJson = subtitleCues ? (typeof subtitleCues === 'string' ? subtitleCues : JSON.stringify(subtitleCues)) : null;
+    if (subtitleEnabled && subtitleCuesJson) {
+      try {
+        const subId = `${Date.now()}_${Math.random().toString(36).slice(2)}.json`;
+        const subDir = path.join(os.tmpdir(), 'av-uploads');
+        const subPath = path.join(subDir, subId);
+        await fs.mkdir(subDir, { recursive: true });
+        await fs.writeFile(subPath, subtitleCuesJson);
+        const serverBase2 = process.env.SERVER_PUBLIC_URL || `http://localhost:${PORT}`;
+        subtitleUrl = `${serverBase2}/uploads/${subId}`;
+      } catch (e) { console.warn('[subtitle] Failed to save cues file:', e); }
+    }
 
     // Build URL with autoExport and params; write upload to a short URL to avoid huge query strings
     const audioFile = req.files['file'][0];
@@ -284,19 +372,24 @@ app.post('/render', upload.fields([
     if (bgImageUrl) url.searchParams.set('bgImageUrl', String(bgImageUrl));
     if (bgFit) url.searchParams.set('bgFit', String(bgFit));
     if (bgOpacity) url.searchParams.set('bgOpacity', String(bgOpacity));
+    // Intro/outro durations
+    if (introSecs) url.searchParams.set('introSecs', String(introSecs));
+    if (outroSecs) url.searchParams.set('outroSecs', String(outroSecs));
     // VU meter accent color
     if (color) url.searchParams.set('color', String(color));
     if (showVU) url.searchParams.set('showVU', '1');
-    // Subtitles / lyrics
-    if (subtitleEnabled === '1' && subtitleCuesJson) {
+    // Subtitle / lyrics
+    if (subtitleEnabled) {
       url.searchParams.set('subtitleEnabled', '1');
-      url.searchParams.set('subtitleCuesJson', subtitleCuesJson);
+      if (subtitleUrl) url.searchParams.set('subtitleUrl', subtitleUrl);
+      if (subtitleCuesJson) url.searchParams.set('subtitleCuesJson', subtitleCuesJson);
       if (subtitlePos) url.searchParams.set('subtitlePos', String(subtitlePos));
       if (subtitleColor) url.searchParams.set('subtitleColor', String(subtitleColor));
       if (subtitleOffset) url.searchParams.set('subtitleOffset', String(subtitleOffset));
       if (subtitleFontSize) url.searchParams.set('subtitleFontSize', String(subtitleFontSize));
     }
-    // Parallax/spotlight backgrounds: no extra params needed yet, but this ensures bgMode=parallax is passed to the client for correct rendering.
+    // Tell the headless browser where to POST the finished recording
+    url.searchParams.set('uploadUrl', `${serverBase}/upload-render/${jobToken}`);
 
     // Stream progress via SSE
     res.setHeader('Content-Type', 'text/event-stream');
@@ -304,7 +397,10 @@ app.post('/render', upload.fields([
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    const sendEvent = (data) => { res.write(`data: ${JSON.stringify(data)}\n\n`); };
+    const sendEvent = (data) => {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+      if (jobId && data.status) updateJob(jobId, { status: data.status });
+    };
     sendEvent({ status: 'loading', progress: 0 });
 
     try {
@@ -338,7 +434,7 @@ app.post('/render', upload.fields([
         if (pollCount <= 5 || pollCount % 20 === 0) {
           console.log(`[poll #${pollCount}] done=${state.done}, prebuffering=${state.prebuffering}, progress=${state.progress}`);
         }
-        if (state.done !== undefined) { pollStopped = true; console.log('[poll] Export done detected, stopping poll'); return; }
+        if (state.done !== undefined) { pollStopped = true; pollRunning = false; console.log('[poll] Export done detected, stopping poll'); return; }
         if (state.prebuffering) {
           if (lastStatus !== 'buffering') {
             lastStatus = 'buffering';
@@ -357,50 +453,53 @@ app.post('/render', upload.fields([
           }
         }
       } catch (e) {
-        console.error('[poll] Error:', e.message || e);
+        const msg = e.message || String(e);
+        // Fatal frame errors mean the page/browser is gone — stop polling immediately
+        if (
+          msg.includes('detached Frame') ||
+          msg.includes('Target closed') ||
+          msg.includes('Session closed') ||
+          msg.includes('Protocol error')
+        ) {
+          pollStopped = true;
+          console.log('[poll] Frame detached or target closed, stopping poll.');
+        } else {
+          console.error('[poll] Error:', msg);
+        }
       }
       pollRunning = false;
     }, 250);
 
-    // Wait for export to finish
-    await page.waitForFunction('window.__exportDone !== undefined', { timeout: 300_000 });
-    clearInterval(progressInterval);
-    pollStopped = true;
-
-    const exportOk = await page.evaluate(() => (window).__exportDone);
-    if (!exportOk) {
-      const errDetail = await page.evaluate(() => (window).__exportError || 'unknown');
+    // Wait for the headless browser to POST the recording directly to /upload-render/:token
+    // This avoids page.evaluate buffer extraction which hangs for large video files
+    let uploadResult;
+    try {
+      sendEvent({ status: 'encoding', progress: 0 });
+      console.log('[render] Waiting for headless browser to upload recording...');
+      uploadResult = await uploadPromise;
+      console.log(`[render] Upload complete — file: ${uploadResult.filePath}, trim: ${uploadResult.trimStart}s`);
+    } catch (uploadErr) {
+      clearInterval(progressInterval);
+      pollStopped = true;
       await browser.close().catch(() => {}); activeBrowser = null;
-      console.error('Auto-export error:', errDetail);
-      sendEvent({ status: 'error', error: 'export_failed', detail: errDetail });
+      console.error('Upload failed:', uploadErr.message);
+      if (jobId) updateJob(jobId, { status: 'error', error: `upload_failed: ${uploadErr.message}` });
+      sendEvent({ status: 'error', error: 'upload_failed', detail: uploadErr.message });
       return res.end();
     }
 
-    console.log('Export done, extracting buffer from page...');
-    sendEvent({ status: 'encoding', progress: 0 });
-    const { bufferBase64, mime } = await page.evaluate(async () => {
-      const ab = (window).__exportBuffer;
-      const mime = (window).__exportMime;
-      const blob = new Blob([new Uint8Array(ab)]);
-      const base64 = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result.split(',')[1]);
-        reader.readAsDataURL(blob);
-      });
-      return { bufferBase64: base64, mime };
-    });
-    console.log(`Buffer extracted, base64 length: ${bufferBase64.length}`);
-
-    // Get trim offset (seconds of prebuffer recorded before audio started)
-    const trimStart = await page.evaluate(() => (window).__exportTrimStart || 0);
-    console.log(`Trim offset: ${trimStart}s`);
+    clearInterval(progressInterval);
+    pollStopped = true;
 
     await browser.close();
     activeBrowser = null;
+    activeJobId = null;
     console.log('Browser closed, saving file...');
     sendEvent({ status: 'saving', progress: 0 });
 
-    const buf = Buffer.from(bufferBase64, 'base64');
+    const trimStart = uploadResult.trimStart;
+    const srcWebm = uploadResult.filePath; // written chunk-by-chunk to disk during recording
+    console.log(`Trim offset: ${trimStart}s, source: ${srcWebm}`);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const renderedDir = path.join(__dirname, '..', 'public', 'rendered');
     await fs.mkdir(renderedDir, { recursive: true });
@@ -409,15 +508,14 @@ app.post('/render', upload.fields([
       // Transcode WebM → MP4 (H.264 + AAC) with ffmpeg, trimming prebuffer
       sendEvent({ status: 'transcoding', progress: 99 });
       console.log('Starting ffmpeg transcode WebM → MP4...');
-      const tmpWebm = path.join(TMP_DIR, `${timestamp}.webm`);
-      await fs.writeFile(tmpWebm, buf);
-      console.log(`Temp WebM written: ${tmpWebm} (${(buf.length / 1024 / 1024).toFixed(1)} MB)`);
+      // srcWebm is already on disk — no buffer re-write needed
       const outName = `visualizer_${timestamp}.mp4`;
       const outPath = path.join(renderedDir, outName);
-      try {
+
+      async function runMp4Transcode(applyTrim) {
         await new Promise((resolve, reject) => {
-          const cmd = ffmpeg(tmpWebm);
-          if (trimStart > 0) {
+          const cmd = ffmpeg(srcWebm);
+          if (applyTrim && trimStart > 0) {
             cmd.setStartTime(trimStart);
             console.log(`Trimming first ${trimStart}s of prebuffer from output`);
           }
@@ -431,6 +529,9 @@ app.post('/render', upload.fields([
               '-movflags', '+faststart',
               '-b:a', `${aBitrate}k`,
             ])
+            .on('stderr', (line) => {
+              try { console.log('[ffmpeg mp4]', line); } catch {}
+            })
             .on('progress', (p) => {
               if (p.percent) console.log(`ffmpeg transcode: ${Math.round(p.percent)}%`);
             })
@@ -438,29 +539,44 @@ app.post('/render', upload.fields([
             .on('error', (err) => { console.error('ffmpeg error:', err); reject(err); })
             .save(outPath);
         });
+      }
+
+      try {
+        try {
+          // First attempt: with trim (if any)
+          await runMp4Transcode(true);
+        } catch (e) {
+          console.warn('MP4 transcode with trim failed, retrying without trim...', e.message || e);
+          // Second attempt: without trim, in case setStartTime is the culprit
+          await runMp4Transcode(false);
+        }
+
         const stat = await fs.stat(outPath);
         console.log(`Rendered MP4 saved to ${outPath} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
+        if (jobId) updateJob(jobId, { status: 'done', filename: outName, fileSize: stat.size });
         sendEvent({ status: 'done', progress: 100, url: `/rendered/${outName}`, filename: outName });
       } catch (transcodeErr) {
-        console.error('ffmpeg transcode failed, saving raw WebM instead:', transcodeErr.message);
-        const fallbackName = `visualizer_${timestamp}.webm`;
-        const fallbackPath = path.join(renderedDir, fallbackName);
-        await fs.writeFile(fallbackPath, buf);
-        sendEvent({ status: 'done', progress: 100, url: `/rendered/${fallbackName}`, filename: fallbackName });
+        console.error('ffmpeg transcode failed after retries:', transcodeErr);
+        if (jobId) updateJob(jobId, { status: 'error', error: `transcode_failed: ${transcodeErr.message}` });
+        sendEvent({ status: 'error', error: 'transcode_failed', detail: transcodeErr.message });
+        try { await fs.unlink(srcWebm); } catch {}
+        console.log('MP4 transcode failed, aborting render.');
+        // Small delay to flush the error event before closing the stream
+        await new Promise(r => setTimeout(r, 1000));
+        return res.end();
       }
-      try { await fs.unlink(tmpWebm); } catch {}
+      try { await fs.unlink(srcWebm); } catch {}
     } else {
       // Save WebM — trim prebuffer with ffmpeg if needed
       const outName = `visualizer_${timestamp}.webm`;
       const outPath = path.join(renderedDir, outName);
       if (trimStart > 0) {
-        const tmpWebm = path.join(TMP_DIR, `${timestamp}_raw.webm`);
-        await fs.writeFile(tmpWebm, buf);
+        // srcWebm already on disk — use directly as ffmpeg input, no re-write needed
         sendEvent({ status: 'transcoding', progress: 99 });
         console.log(`Trimming first ${trimStart}s of prebuffer from WebM (re-encode)...`);
         try {
           await new Promise((resolve, reject) => {
-            ffmpeg(tmpWebm)
+            ffmpeg(srcWebm)
               .setStartTime(trimStart)
               .videoCodec('libvpx-vp9')
               .audioCodec('libopus')
@@ -474,13 +590,16 @@ app.post('/render', upload.fields([
           });
         } catch (trimErr) {
           console.error('ffmpeg trim failed, saving untrimmed WebM instead:', trimErr.message);
-          await fs.writeFile(outPath, buf);
+          try { await fs.rename(srcWebm, outPath); } catch { await fs.copyFile(srcWebm, outPath); }
         }
-        try { await fs.unlink(tmpWebm); } catch {}
+        try { await fs.unlink(srcWebm); } catch {}
       } else {
-        await fs.writeFile(outPath, buf);
+        // No trim — move directly to rendered folder, zero extra I/O
+        await fs.rename(srcWebm, outPath);
       }
-      console.log(`Rendered WebM saved to ${outPath}`);
+      const webmStat = await fs.stat(outPath);
+      console.log(`Rendered WebM saved to ${outPath} (${(webmStat.size / 1024 / 1024).toFixed(1)} MB)`);
+      if (jobId) updateJob(jobId, { status: 'done', filename: outName, fileSize: webmStat.size });
       sendEvent({ status: 'done', progress: 100, url: `/rendered/${outName}`, filename: outName });
     }
     // Small delay to ensure the done event is flushed before closing the stream
@@ -494,10 +613,36 @@ app.post('/render', upload.fields([
     console.error(e);
     // Clean up browser on error
     if (activeBrowser) { try { await activeBrowser.close(); } catch {} activeBrowser = null; }
+    if (jobId) updateJob(jobId, { status: 'error', error: String(e) });
     try { res.write(`data: ${JSON.stringify({ status: 'error', error: 'render_failed', detail: String(e) })}\n\n`); } catch {}
     try { res.end(); } catch {}
   }
 });
+
+// ─── Jobs API ────────────────────────────────────────────────────────────────
+
+// POST /abort  — cancel the current render
+app.post('/abort', async (req, res) => {
+  await killActiveBrowser();
+  res.json({ ok: true });
+});
+
+// GET /jobs?limit=50  — list recent render jobs
+app.get('/jobs', (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 50, 500);
+  const jobs  = listJobs(limit);
+  const total = countJobs();
+  res.json({ total, jobs });
+});
+
+// GET /jobs/:id  — single job
+app.get('/jobs/:id', (req, res) => {
+  const job = getJob(req.params.id);
+  if (!job) return res.status(404).json({ error: 'not found' });
+  res.json(job);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => console.log(`Render server listening on http://localhost:${PORT}`));
 

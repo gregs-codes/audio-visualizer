@@ -16,6 +16,7 @@ import type { DancerSources } from './visualizer/dancer/DancerEngine';
 import { ANIMATION_FILES } from './visualizer/dancer/animations';
 import { CHARACTER_FILES } from './visualizer/dancer/characters';
 import { VISUALIZER_MODES, LABELS, VISUALIZER_CATEGORIES } from './visualizer/visualizers';
+import type { SubtitleCue } from './subtitles/parseSrt';
 
 const CUSTOM_MODES = [
 	{ key: 'threejs-3d', label: '3D Three.js Visualizer' },
@@ -48,7 +49,13 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [ready, setReady] = useState(false);
 	const [layout, setLayout] = useState<LayoutMode>('1');
 	const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
+	// canvasRef always points at the main visualizer canvas that the user sees.
+	// For GridVisualizerCanvas modes it's the 2D canvas; for Three.js / hexagon
+	// modes it is wired to the corresponding WebGL/2D canvas via VisualizerPanel.
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
+	// exportCanvasRef is kept for existing 2D export pipeline (hidden full-res
+	// GridVisualizerCanvas). Three.js / hexagon modes record from canvasRef
+	// directly so the output matches what the user sees.
 	const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
 	const { start, stop } = useCanvasRecorder();
 	const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -181,20 +188,39 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	}, [autoParams]);
 
 	// Reusable export runner (used by button and auto export)
+	const exportCancelRef = useRef<(() => void) | null>(null);
+
+	const stopExport = () => {
+		exportCancelRef.current?.();
+	};
+
 	const runExport = async () => {
 		if (!canvasRef.current || !audioRef.current || !analyserNode) return null;
 		const audio = audioRef.current;
-		const canvas = exportCanvasRef.current;
+		// For Three.js / hexagon modes, record from the visible main canvas (canvasRef).
+		// For other modes, keep using the dedicated hidden export canvas (exportCanvasRef)
+		// to honor the higher export resolution.
+		const isThreeLikeMode = mode === 'threejs-3d' || mode === 'threejs-shader' || mode === 'hexagon-visualizer';
+		const canvas = isThreeLikeMode ? canvasRef.current : exportCanvasRef.current;
 		if (!canvas) { setExportError('Export canvas not ready'); return null; }
 		if (muteDuringExport) setPlaybackMuted(true);
 		setExporting(true); setExportProgress(0); setExportError('');
+		let cancelled = false;
+		exportCancelRef.current = () => { cancelled = true; };
 		const mime = codec === 'vp9' ? 'video/webm;codecs=vp9,opus' : 'video/webm;codecs=vp8,opus';
 		// Start recording with intro phase
 		setExportPhase('intro');
 		audio.currentTime = 0;
 		start(canvas, getAudioStream(), { fps, mime, audioBitsPerSecond: aBitrate * 1000, videoBitsPerSecond: vBitrate * 1000 });
 		// Record intro: dark screen with title/artist/frozen countdown
-		await new Promise(r => setTimeout(r, introSecs * 1000));
+		await new Promise<void>(r => { const t = setTimeout(r, introSecs * 1000); exportCancelRef.current = () => { cancelled = true; clearTimeout(t); r(); }; });
+		if (cancelled) {
+			audio.pause(); audio.currentTime = 0;
+			await stop(); // discard recording
+			if (muteDuringExport) setPlaybackMuted(false);
+			setExportPhase(undefined); setExporting(false); setExportProgress(0);
+			exportCancelRef.current = null; return null;
+		}
 		// Switch to playing phase and start audio
 		setExportPhase('playing');
 		await audio.play();
@@ -204,25 +230,40 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				const elapsed = introSecs + (audio.currentTime || 0);
 				setExportProgress(Math.min(1, elapsed / totalDur));
 			}
-			if (!audio.paused && !audio.ended) { requestAnimationFrame(tick); }
+			if (!audio.paused && !audio.ended && !cancelled) { requestAnimationFrame(tick); }
 		};
 		tick();
 		await new Promise<void>((resolve) => {
+			exportCancelRef.current = () => { cancelled = true; resolve(); };
 			const check = () => {
-				if (audio.ended || (audio.duration > 0 && (audio.currentTime || 0) >= audio.duration - 0.03)) { resolve(); }
+				if (cancelled || audio.ended || (audio.duration > 0 && (audio.currentTime || 0) >= audio.duration - 0.03)) { resolve(); }
 				else requestAnimationFrame(check);
 			};
 			check();
 		});
 		audio.pause();
+		if (cancelled) {
+			audio.currentTime = 0;
+			await stop(); // discard recording
+			if (muteDuringExport) setPlaybackMuted(false);
+			setExportPhase(undefined); setExporting(false); setExportProgress(0);
+			exportCancelRef.current = null; return null;
+		}
 		// Switch to outro phase
 		setExportPhase('outro');
-		await new Promise(r => setTimeout(r, outroSecs * 1000));
+		await new Promise<void>(r => { const t = setTimeout(r, outroSecs * 1000); exportCancelRef.current = () => { cancelled = true; clearTimeout(t); r(); }; });
+		if (cancelled) {
+			await stop();
+			if (muteDuringExport) setPlaybackMuted(false);
+			setExportPhase(undefined); setExporting(false); setExportProgress(0);
+			exportCancelRef.current = null; return null;
+		}
 		setExportPhase(undefined);
 		const blob = await stop();
 		if (muteDuringExport) setPlaybackMuted(false);
 		setExportProgress(1);
 		setExporting(false);
+		exportCancelRef.current = null;
 		return blob;
 	};
 
@@ -407,28 +448,48 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				// VU meter color from query params
 				const colorQ = q.get('color');
 				if (colorQ) setColor(colorQ.startsWith('#') ? colorQ : '#' + colorQ);
-
+					// Intro/outro durations (read from URL so server can override defaults)
+					const introSecsQ = parseInt(q.get('introSecs') || String(introSecs), 10);
+					const outroSecsQ = parseInt(q.get('outroSecs') || String(outroSecs), 10);
 				// Subtitle / lyrics from query params
 				const subtitleEnabledQ = q.get('subtitleEnabled') === '1';
-				const subtitleCuesJsonQ = q.get('subtitleCuesJson');
-				if (subtitleEnabledQ && subtitleCuesJsonQ) {
-					try {
-						const cues = JSON.parse(subtitleCuesJsonQ);
-						if (Array.isArray(cues) && cues.length) {
-							setSubtitleCues(cues);
-							setSubtitleEnabled(true);
-						}
-					} catch (e) { console.warn('[subtitle] Failed to parse inline cues JSON:', e); }
+				const subtitleUrlQ = q.get('subtitleUrl');
+				const subtitleInlineQ = q.get('subtitleCuesJson');
+				if (subtitleEnabledQ) {
+					let loaded = false;
+					if (subtitleUrlQ) {
+						try {
+							const subResp = await fetch(subtitleUrlQ);
+							if (subResp.ok) {
+								const cues = await subResp.json();
+								if (Array.isArray(cues) && cues.length) {
+									setSubtitleCues(cues);
+									setSubtitleEnabled(true);
+									loaded = true;
+								}
+							}
+						} catch (e) { console.warn('[subtitle] Failed to load cues from URL:', e); }
+					}
+					// Fallback: inline JSON from query param if provided
+					if (!loaded && subtitleInlineQ) {
+						try {
+							const cues = JSON.parse(subtitleInlineQ);
+							if (Array.isArray(cues) && cues.length) {
+								setSubtitleCues(cues);
+								setSubtitleEnabled(true);
+								loaded = true;
+							}
+						} catch (e) { console.warn('[subtitle] Failed to parse inline cues JSON:', e); }
+					}
 				}
 				const subtitlePosQ = q.get('subtitlePos');
 				const subtitleColorQ = q.get('subtitleColor');
 				const subtitleOffsetQ = q.get('subtitleOffset');
 				const subtitleFontSizeQ = q.get('subtitleFontSize');
-				if (subtitlePosQ) setSubtitlePos(subtitlePosQ);
+				if (subtitlePosQ) setSubtitlePos(subtitlePosQ as any);
 				if (subtitleColorQ) setSubtitleColor(subtitleColorQ.startsWith('#') ? subtitleColorQ : '#' + subtitleColorQ);
 				if (subtitleOffsetQ) setSubtitleOffset(parseFloat(subtitleOffsetQ));
 				if (subtitleFontSizeQ) setSubtitleFontSize(parseInt(subtitleFontSizeQ, 10));
-
 				if (!audioUrl) throw new Error('Missing audio URL');
 				// Load audio from URL by creating a File to reuse existing init()
 				const resp = await fetch(audioUrl);
@@ -444,11 +505,15 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				setReady(true);
 				if (!a) throw new Error('Audio element not ready');
 
-				// Wait for React to re-render and mount the export canvas
+				// Wait for React to re-render and mount the correct canvas
+				// For Three.js / hexagon modes we record from the visible main canvas
+				// (canvasRef). For all other modes we continue to use the hidden
+				// GridVisualizerCanvas (exportCanvasRef) for full-resolution export.
+				const isThreeLikeMode = modeQ === 'threejs-3d' || modeQ === 'threejs-shader' || modeQ === 'hexagon-visualizer';
 				let canvas: HTMLCanvasElement | null = null;
 				for (let i = 0; i < 200; i++) {
 					await new Promise(r => requestAnimationFrame(r));
-					canvas = exportCanvasRef.current;
+					canvas = isThreeLikeMode ? canvasRef.current : exportCanvasRef.current;
 					if (canvas) break;
 				}
 				if (!canvas) throw new Error('Export canvas not ready after waiting');
@@ -485,29 +550,29 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				const RECORDER_PREBUFFER_SECS = 3;
 				// Start in intro phase (dark screen with title/artist/frozen countdown)
 				setExportPhase('intro');
-				start(canvas, getAudioStream(), { fps: fpsQ, mime: mimeOut || undefined, audioBitsPerSecond: aBitQ * 1000, videoBitsPerSecond: vBitQ * 1000 });
-				console.log(`[auto-export] Recorder started, prebuffering ${RECORDER_PREBUFFER_SECS}s of silent frames...`);
+				const uploadUrl = q.get('uploadUrl') || undefined;
+				// Pass uploadUrl so the recorder streams each chunk to the server as it's produced
+				start(canvas, getAudioStream(), { fps: fpsQ, mime: mimeOut || undefined, audioBitsPerSecond: aBitQ * 1000, videoBitsPerSecond: vBitQ * 1000, uploadUrl, trimStart: RECORDER_PREBUFFER_SECS });
+				console.log(`[auto-export] Recorder started (${uploadUrl ? 'streaming chunks to server' : 'local'}), prebuffering ${RECORDER_PREBUFFER_SECS}s...`);
 				// Record silent frames to let the encoder fully warm up (these will be trimmed by server)
 				await new Promise(r => setTimeout(r, RECORDER_PREBUFFER_SECS * 1000));
 				console.log('[auto-export] Pipeline ready, recording intro...');
-				// Expose the trim offset so the server knows how much to cut (prebuffer only, intro is kept)
-				(window as any).__exportTrimStart = RECORDER_PREBUFFER_SECS;
 				// Record intro dark screen
-				await new Promise(r => setTimeout(r, introSecs * 1000));
+					await new Promise(r => setTimeout(r, introSecsQ * 1000));
 				console.log('[auto-export] Intro done, starting audio playback');
 				// Switch to playing phase
 				setExportPhase('playing');
 				(window as any).__exportProgress = 0;
 				a.currentTime = 0;
 				await a.play();
-				const totalDur = introSecs + (a.duration || 0) + outroSecs;
+					const totalDur = introSecsQ + (a.duration || 0) + outroSecsQ;
 				console.log('[auto-export] Playback started, duration:', a.duration);
 				await new Promise<void>((resolve) => {
 					const startTime = Date.now();
 					const maxWaitMs = (a.duration + 5) * 1000; // duration + 5s safety margin
 					const check = () => {
 						if (a.duration > 0) {
-							const elapsed = introSecs + (a.currentTime || 0);
+							const elapsed = introSecsQ + (a.currentTime || 0);
 							const p = Math.min(1, elapsed / totalDur);
 							(window as any).__exportProgress = p;
 						}
@@ -524,23 +589,28 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				// Record outro: dark screen with title/artist and 00:00 countdown
 				console.log('[auto-export] Recording outro...');
 				setExportPhase('outro');
-				await new Promise(r => setTimeout(r, outroSecs * 1000));
+					await new Promise(r => setTimeout(r, outroSecsQ * 1000));
 				(window as any).__exportProgress = 1;
 				setExportPhase(undefined);
 				console.log('[auto-export] Stopping recorder...');
 				const blob = await stop();
-				console.log('[auto-export] Recorder stopped, blob size:', blob?.size);
+				console.log('[auto-export] Recorder stopped');
 
-
-				if (!blob) throw new Error('No export blob');
-				const ab = await blob.arrayBuffer();
-				console.log('[auto-export] Buffer ready, size:', ab.byteLength);
-				// Expose to Puppeteer
-				(Object.assign(window as any, {
-					__exportBuffer: ab,
-					__exportMime: blob.type || 'video/webm',
-					__exportDone: true,
-				}));
+				if (uploadUrl) {
+					// Chunks were streamed to the server during recording; finalize was called inside stop()
+					console.log('[auto-export] Chunked upload complete — server has the file');
+					(Object.assign(window as any, { __exportDone: true }));
+				} else {
+					// Fallback: accumulate locally and expose buffer (non-server / manual export mode)
+					if (!blob) throw new Error('No export blob');
+					const ab = await blob.arrayBuffer();
+					console.log('[auto-export] Buffer ready, size:', ab.byteLength);
+					(Object.assign(window as any, {
+						__exportBuffer: ab,
+						__exportMime: blob.type || 'video/webm',
+						__exportDone: true,
+					}));
+				}
 			} catch (err) {
 				console.error('Auto-export failed:', err);
 				(Object.assign(window as any, { __exportDone: false, __exportError: String(err) }));
@@ -588,6 +658,14 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 		const [countPos, setCountPos] = useState<Position5>('rt');
 	const [countColor, setCountColor] = useState('#e6e6eb');
 	const [countFx, setCountFx] = useState<{ float: boolean; bounce: boolean; pulse: boolean }>({ float: false, bounce: true, pulse: true });
+
+	// Subtitle / lyrics state
+	const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([]);
+	const [subtitleEnabled, setSubtitleEnabled] = useState(false);
+	const [subtitlePos, setSubtitlePos] = useState('mb');
+	const [subtitleColor, setSubtitleColor] = useState('#ffffff');
+	const [subtitleOffset, setSubtitleOffset] = useState(0);
+	const [subtitleFontSize, setSubtitleFontSize] = useState(24);
 
 	// Dancer overlay state (acts like text overlays, independent of panel modes)
 	const [showDancer, setShowDancer] = useState(false);
@@ -773,6 +851,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				effectiveSize={effectiveSize}
 				exporting={exporting}
 				exportProgress={exportProgress}
+				stopExport={stopExport}
 				exportError={exportError}
 				runExport={runExport}
 			/>
@@ -823,29 +902,30 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 									if (desc) { fd.append('desc', desc); fd.append('descPos', descPos); fd.append('descColor', descColor); if (descFx.float) fd.append('descFloat', '1'); if (descFx.bounce) fd.append('descBounce', '1'); if (descFx.pulse) fd.append('descPulse', '1'); }
 									fd.append('showCountdown', '1'); fd.append('countPos', countPos); fd.append('countColor', countColor); if (countFx.float) fd.append('countFloat', '1'); if (countFx.bounce) fd.append('countBounce', '1'); if (countFx.pulse) fd.append('countPulse', '1');
 									fd.append('bgMode', bgMode);
-									fd.append('bgColor', bgColor); // always send – used as tint for viz-bg modes too
-									if (bgMode === 'image') {
-										if (bgImageUrl && bgImageUrl.startsWith('blob:')) {
-											try {
-												const blobResp = await fetch(bgImageUrl);
-												const imgBlob = await blobResp.blob();
-												const imgExt = (imgBlob.type.split('/')[1] || 'png').split(';')[0];
-												fd.append('bgImage', new File([imgBlob], `background.${imgExt}`, { type: imgBlob.type }));
-											} catch { /* skip if fetch fails */ }
-										} else if (bgImageUrl) {
-											fd.append('bgImageUrl', bgImageUrl);
-										}
-									}
-									fd.append('bgFit', bgFit); fd.append('bgOpacity', String(bgOpacity));
-									if (subtitleEnabled && subtitleCues.length > 0) {
-										fd.append('subtitleEnabled', '1');
-										fd.append('subtitleCues', JSON.stringify(subtitleCues));
-										fd.append('subtitlePos', subtitlePos);
-										fd.append('subtitleColor', subtitleColor);
-										fd.append('subtitleOffset', String(subtitleOffset));
-										fd.append('subtitleFontSize', String(subtitleFontSize));
-									}
-
+							fd.append('bgColor', bgColor); // always send – used as tint for viz-bg modes too
+							if (bgMode === 'image') {
+								if (bgImageUrl && bgImageUrl.startsWith('blob:')) {
+									try {
+										const blobResp = await fetch(bgImageUrl);
+										const imgBlob = await blobResp.blob();
+										const imgExt = (imgBlob.type.split('/')[1] || 'png').split(';')[0];
+										fd.append('bgImage', new File([imgBlob], `background.${imgExt}`, { type: imgBlob.type }));
+									} catch { /* skip if fetch fails */ }
+								} else if (bgImageUrl) {
+									fd.append('bgImageUrl', bgImageUrl);
+								}
+							}
+							fd.append('bgFit', bgFit); fd.append('bgOpacity', String(bgOpacity));
+							fd.append('introSecs', String(introSecs)); fd.append('outroSecs', String(outroSecs));
+							// Subtitle / lyrics params
+							if (subtitleEnabled && subtitleCues.length > 0) {
+								fd.append('subtitleEnabled', '1');
+								fd.append('subtitleCues', JSON.stringify(subtitleCues));
+								fd.append('subtitlePos', subtitlePos);
+								fd.append('subtitleColor', subtitleColor);
+								fd.append('subtitleOffset', String(subtitleOffset));
+								fd.append('subtitleFontSize', String(subtitleFontSize));
+							}
 									const resp = await fetch(serverUrl, { method: 'POST', body: fd });
 									const reader = resp.body?.getReader();
 									if (!reader) throw new Error('No response stream');
@@ -862,7 +942,17 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 												if (evt.status) setServerStatus(evt.status);
 												if (evt.progress !== undefined) setServerProgress(evt.progress);
 												if (evt.status === 'error') { setServerError(evt.detail || evt.error || 'Render failed'); setServerRendering(false); return true; }
-												if (evt.status === 'done') { setServerProgress(100); setServerRendering(false); fetchRenderedFiles(); return true; }
+									if (evt.status === 'done') {
+										setServerProgress(100); setServerRendering(false); fetchRenderedFiles();
+										// Auto-download the finished file
+										if (evt.filename) {
+											const a = document.createElement('a');
+											a.href = `/rendered/${evt.filename}`;
+											a.download = evt.filename;
+											document.body.appendChild(a); a.click(); a.remove();
+										}
+										return true;
+									}
 											} catch {}
 										}
 										return false;

@@ -92,7 +92,7 @@ export async function renderHighGfxRingsTrailsWithFeatures(
     eng = { canvas, renderer, scene, camera, composer, rings };
     engines.set(key, eng);
   }
-  if (eng.canvas.width !== W || eng.canvas.height !== H) { eng.renderer.setSize(W, H, false); eng.camera.aspect = W / H; eng.camera.updateProjectionMatrix(); }
+  if (eng.canvas.width !== W || eng.canvas.height !== H) { eng.renderer.setSize(W, H, false); eng.composer.setSize(W, H); eng.camera.aspect = W / H; eng.camera.updateProjectionMatrix(); }
   // View tilt
   const view = opts?.view ?? 'top';
   if (view === 'top') {

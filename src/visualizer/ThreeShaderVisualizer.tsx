@@ -100,6 +100,8 @@ const ThreeShaderVisualizer: React.FC<ThreeShaderVisualizerProps> = ({
     renderer.setClearColor(0x000000, 0);
     renderer.setSize(width, height);
     renderer.domElement.style.background = 'transparent';
+    // Mark this as the main visualizer canvas so the exporter can find it
+    (renderer.domElement as HTMLCanvasElement).dataset.mainVisualizer = '1';
     mountRef.current.appendChild(renderer.domElement);
 
     // Uniforms

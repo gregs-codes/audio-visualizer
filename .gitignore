@@ -20,6 +20,11 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+
+# SQLite database
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
 *.local
 
 # Editor directories and files

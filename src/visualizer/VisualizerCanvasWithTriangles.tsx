@@ -35,7 +35,14 @@ const VisualizerCanvasWithTriangles: React.FC<VisualizerCanvasWithTrianglesProps
     if (!analyser) return;
     const freqArr = new Uint8Array(analyser.frequencyBinCount);
     let rafId: number;
-    const update = () => {
+    const TRI_FRAME_MS = 1000 / 30;
+    let lastTriFrame = 0;
+    const update = (now: number = 0) => {
+      if (now - lastTriFrame < TRI_FRAME_MS) {
+        rafId = requestAnimationFrame(update);
+        return;
+      }
+      lastTriFrame = now;
       analyser.getByteFrequencyData(freqArr);
       setFrequencyData(Array.from(freqArr));
       // Simple beat detection: high average triggers beat

@@ -4,6 +4,8 @@ import type { VisualizerMode } from './visualizerModes';
 import { VISUALIZERS } from './visualizers';
 import type { DancerSources } from './dancer/DancerEngine';
 import { renderDancerWithFeatures } from './dancer/DancerEngine';
+import { getActiveCue } from '../subtitles/parseSrt';
+import type { SubtitleCue } from '../subtitles/parseSrt';
 import { renderHighGfxWithFeatures } from './highgfx/HighGfxEngine';
 import { renderHighGfxNebulaWithFeatures } from './highgfx/HighGfxNebulaEngine';
 import { renderHighGfxTunnelWithFeatures } from './highgfx/HighGfxTunnelEngine';
@@ -167,9 +169,13 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
       ctx.restore();
     };
     let raf = 0;
+    let cancelled = false;
+    let lastFrameTime = 0;
+    const TARGET_FRAME_MS = 1000 / 30; // cap preview at 30 fps
     const mainDetector = new AudioFeatureDetector(analyser);
     const panelDetectors = panels.map((_, i) => new AudioFeatureDetector(analysers?.[i] || analyser));
-    const render = () => {
+    const render = (now: number = 0) => {
+      if (cancelled) return;
       const isPlaying = !!audio && !audio.paused && !audio.ended && (audio.currentTime ?? 0) > 0;
       const inIntroOutro = exportPhase === 'intro' || exportPhase === 'outro';
       if (inIntroOutro) {
@@ -194,9 +200,16 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         return;
       }
       if (!isPlaying) {
+        // Throttle idle polling to ~8 fps to save CPU/GPU
+        setTimeout(() => { if (!cancelled) raf = requestAnimationFrame(render); }, 120);
+        return;
+      }
+      // Cap active preview at 30 fps
+      if (!exportPhase && now - lastFrameTime < TARGET_FRAME_MS) {
         raf = requestAnimationFrame(render);
         return;
       }
+      lastFrameTime = now;
       ctx.clearRect(0, 0, c.width, c.height);
       // Read frequency data early so bg-viz modes can use it
       const baseFreq = new Uint8Array(analyser.frequencyBinCount);
@@ -446,7 +459,6 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
         drawBar(bx, by, vuLevelRef.current.L, vuPeakRef.current.L);
         drawBar(bx, by + barH + gap, vuLevelRef.current.R, vuPeakRef.current.R);
       }
-
       // Subtitle / lyrics overlay
       if (overlaySubtitle?.enabled && overlaySubtitle.cues.length > 0 && audio) {
         const cue = getActiveCue(overlaySubtitle.cues, audio.currentTime, overlaySubtitle.offsetSecs);
@@ -463,6 +475,8 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           const pos = overlaySubtitle.position;
           const hCenter = pos[0] === 'm'; // mt, mm, mb — middle-horizontal
 
+          // For centered positions, background spans full width (like TV captions).
+          // For left/right positions, pill fits the text.
           let bx2: number, pillW: number, textX: number;
           if (hCenter) {
             bx2 = 0;
@@ -481,11 +495,13 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           else if (pos[1] === 'm') by2 = (c.height - blockH) / 2;
           else by2 = c.height - margin - blockH;
 
+          // Background bar
           ctx.fillStyle = 'rgba(0, 0, 0, 0.50)';
           ctx.beginPath();
           const r = hCenter ? 0 : Math.round(6 * sf);
           ctx.roundRect(bx2, by2, pillW, blockH, r);
           ctx.fill();
+          // Text
           ctx.textAlign = 'center';
           ctx.textBaseline = 'top';
           ctx.fillStyle = overlaySubtitle.color;
@@ -500,11 +516,10 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           ctx.restore();
         }
       }
-
       raf = requestAnimationFrame(render);
     };
-    render();
-    return () => { cancelAnimationFrame(raf); };
+    raf = requestAnimationFrame(render);
+    return () => { cancelled = true; cancelAnimationFrame(raf); };
   }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU, overlaySubtitle, exportPhase, bgParallax, parallaxEngine]);
 
   return <canvas ref={innerRef} width={width} height={height} />;

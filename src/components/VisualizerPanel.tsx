@@ -1,5 +1,6 @@
 import ThreeShaderVisualizer from '../visualizer/ThreeShaderVisualizer';
 import React, { useEffect, useRef } from 'react';
+import type { SubtitleCue } from '../subtitles/parseSrt';
 import { GridVisualizerCanvas } from '../visualizer/GridVisualizerCanvas';
 import ThreeAudioVisualizer from '../visualizer/ThreeAudioVisualizer';
 import HexagonVisualizer from '../visualizer/HexagonVisualizer';
@@ -40,8 +41,15 @@ const ThreeJsBgLayer: React.FC<{
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     parallaxRef.current = null;
+    const BG_FRAME_MS = 1000 / 30; // cap background animations at 30 fps
+    let lastBgFrame = 0;
 
-    const animate = () => {
+    const animate = (now: number = 0) => {
+      if (now - lastBgFrame < BG_FRAME_MS) {
+        rafRef.current = requestAnimationFrame(animate);
+        return;
+      }
+      lastBgFrame = now;
       ctx.clearRect(0, 0, width, height);
       const time = performance.now();
 
@@ -72,7 +80,7 @@ const ThreeJsBgLayer: React.FC<{
     };
     rafRef.current = requestAnimationFrame(animate);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [bgMode, width, height, analyser, bgColor]);
+  }, [bgMode, width, height, analyser, bgColor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const base: React.CSSProperties = { position: 'absolute', inset: 0, zIndex: 0 };
 
@@ -248,12 +256,21 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
     analyser: analyserNode,
   };
 
+  // Helper to attach the main visualizer canvas (for Three.js / hexagon modes)
+  const attachMainCanvasRef = (node: HTMLDivElement | null) => {
+    if (!node || !canvasRef) return;
+    const mainCanvas = node.querySelector<HTMLCanvasElement>('canvas[data-main-visualizer="1"]');
+    if (mainCanvas && 'current' in canvasRef) {
+      (canvasRef as React.MutableRefObject<HTMLCanvasElement | null>).current = mainCanvas;
+    }
+  };
+
   // Render visualizer based on mode
   const renderVisualizer = () => {
     switch (mode) {
       case 'hexagon-visualizer':
         return (
-          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
+          <div ref={attachMainCanvasRef} style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
             <ThreeJsBgLayer {...bgLayerProps} />
             <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
               <HexagonVisualizer {...commonProps} />
@@ -266,7 +283,7 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
 
       case 'threejs-3d':
         return (
-          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
+          <div ref={attachMainCanvasRef} style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
             <ThreeJsBgLayer {...bgLayerProps} />
             <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
               <ThreeAudioVisualizer analyser={analyserNode} width={previewSize.w} height={previewSize.h} />
@@ -279,7 +296,7 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
 
       case 'threejs-shader':
         return (
-          <div style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
+          <div ref={attachMainCanvasRef} style={{ position: 'relative', width: previewSize.w, height: previewSize.h }}>
             <ThreeJsBgLayer {...bgLayerProps} />
             <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
               <ThreeShaderVisualizer
