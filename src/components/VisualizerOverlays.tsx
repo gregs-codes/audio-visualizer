@@ -1,6 +1,8 @@
 import React from 'react';
 import { DancerPreview } from '../visualizer/dancer/DancerPreview';
 import VUMeters from '../visualizer/VUMeters';
+import { getActiveCue } from '../subtitles/parseSrt';
+import type { SubtitleCue } from '../subtitles/parseSrt';
 
 /**
  * Unified overlay layer for all visualizer modes.
@@ -39,6 +41,13 @@ interface OverlayProps {
   stereo?: { left: AnalyserNode | null; right: AnalyserNode | null } | null;
   vuColor?: string;
   vuPos?: string;
+  // Subtitles
+  subtitleCues?: SubtitleCue[];
+  subtitleEnabled?: boolean;
+  subtitlePos?: string;
+  subtitleColor?: string;
+  subtitleOffset?: number; // seconds to shift timing (+/-)
+  subtitleFontSize?: number; // base px at 720p
 }
 
 // Map position code to CSS properties
@@ -132,18 +141,28 @@ const VisualizerOverlays: React.FC<OverlayProps> = ({
   stereo,
   vuColor = '#7aa2ff',
   vuPos,
+  subtitleCues = [],
+  subtitleEnabled = false,
+  subtitlePos = 'mb',
+  subtitleColor = '#ffffff',
+  subtitleOffset = 0,
+  subtitleFontSize = 24,
 }) => {
   const scaleFactor = height / 720;
   const dancerW = Math.max(80, Math.round(width * (dancerSize / 100)));
   const dancerH = Math.round(dancerW * 9 / 16);
 
-  // Force re-render for countdown updates
+  // Force re-render for countdown + subtitle updates
   const [, setTick] = React.useState(0);
   React.useEffect(() => {
     if (!audioEl) return;
-    const interval = setInterval(() => setTick(t => t + 1), 100);
+    const interval = setInterval(() => setTick(t => t + 1), 50);
     return () => clearInterval(interval);
   }, [audioEl]);
+
+  const activeCue = subtitleEnabled && subtitleCues.length > 0 && audioEl
+    ? getActiveCue(subtitleCues, audioEl.currentTime, subtitleOffset)
+    : null;
 
   return (
     <div className="overlay-controls" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
@@ -231,6 +250,33 @@ const VisualizerOverlays: React.FC<OverlayProps> = ({
           orientation="horizontal"
           anchorPos={vuPosToAnchor(vuPos ?? countPos)}
         />
+      )}
+
+      {/* Subtitle / lyrics overlay */}
+      {subtitleEnabled && activeCue && (
+        <div style={{
+          ...(subtitlePos?.[0] === 'm'
+            // Center-horizontal: full-width bar like TV captions
+            ? { position: 'absolute', left: 0, right: 0,
+                ...(subtitlePos[1] === 't' ? { top: 0 } : subtitlePos[1] === 'm' ? { top: '50%', transform: 'translateY(-50%)' } : { bottom: 0 }),
+                textAlign: 'center' }
+            // Left/right: pill sized to text
+            : positionStyle(subtitlePos, width, height)),
+          color: subtitleColor,
+          fontSize: Math.round(subtitleFontSize * scaleFactor),
+          fontWeight: 600,
+          lineHeight: 1.35,
+          textAlign: 'center',
+          textShadow: '0 1px 6px #000, 0 0 2px #000',
+          fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+          background: 'rgba(0,0,0,0.50)',
+          borderRadius: subtitlePos?.[0] === 'm' ? 0 : 6,
+          padding: `${Math.round(6 * scaleFactor)}px ${Math.round(12 * scaleFactor)}px`,
+          maxWidth: subtitlePos?.[0] === 'm' ? undefined : '80%',
+          whiteSpace: 'pre-line',
+        }}>
+          {activeCue.text}
+        </div>
       )}
     </div>
   );

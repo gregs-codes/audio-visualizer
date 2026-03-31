@@ -9,6 +9,7 @@ import { CharacterSettings } from './components/CharacterSettings';
 import { CameraSettings } from './components/CameraSettings';
 import { TextOverlaySettings } from './components/TextOverlaySettings';
 import { ExportSettings } from './components/ExportSettings';
+import { SubtitleSettings } from './components/SubtitleSettings';
 import { useAudioAnalyzer } from './audio/useAudioAnalyzer';
 import type { VisualizerMode, FrequencyBand } from './visualizer/visualizerModes';
 import type { DancerSources } from './visualizer/dancer/DancerEngine';
@@ -28,6 +29,7 @@ const EXTENDED_CATEGORIES = {
 };
 import type { LayoutMode } from './visualizer/GridVisualizerCanvas';
 import { useCanvasRecorder } from './recorder/useCanvasRecorder';
+import type { SubtitleCue } from './subtitles/parseSrt';
 
 export default function App() {
 	const { audioRef, init, getAudioStream, getBandAnalyser, getStereoAnalysers, setPlaybackMuted, setPlaybackVolume } = useAudioAnalyzer();
@@ -115,6 +117,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 		character: false,
 		camera: false,
 		text: false,
+		subtitles: false,
 		export: false,
 		server: false,
 	});
@@ -405,6 +408,27 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				const colorQ = q.get('color');
 				if (colorQ) setColor(colorQ.startsWith('#') ? colorQ : '#' + colorQ);
 
+				// Subtitle / lyrics from query params
+				const subtitleEnabledQ = q.get('subtitleEnabled') === '1';
+				const subtitleCuesJsonQ = q.get('subtitleCuesJson');
+				if (subtitleEnabledQ && subtitleCuesJsonQ) {
+					try {
+						const cues = JSON.parse(subtitleCuesJsonQ);
+						if (Array.isArray(cues) && cues.length) {
+							setSubtitleCues(cues);
+							setSubtitleEnabled(true);
+						}
+					} catch (e) { console.warn('[subtitle] Failed to parse inline cues JSON:', e); }
+				}
+				const subtitlePosQ = q.get('subtitlePos');
+				const subtitleColorQ = q.get('subtitleColor');
+				const subtitleOffsetQ = q.get('subtitleOffset');
+				const subtitleFontSizeQ = q.get('subtitleFontSize');
+				if (subtitlePosQ) setSubtitlePos(subtitlePosQ);
+				if (subtitleColorQ) setSubtitleColor(subtitleColorQ.startsWith('#') ? subtitleColorQ : '#' + subtitleColorQ);
+				if (subtitleOffsetQ) setSubtitleOffset(parseFloat(subtitleOffsetQ));
+				if (subtitleFontSizeQ) setSubtitleFontSize(parseInt(subtitleFontSizeQ, 10));
+
 				if (!audioUrl) throw new Error('Missing audio URL');
 				// Load audio from URL by creating a File to reuse existing init()
 				const resp = await fetch(audioUrl);
@@ -571,6 +595,14 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [dancerSize, setDancerSize] = useState<number>(40); // percent of canvas width
 	const [dancerOverlaySources, setDancerOverlaySources] = useState<DancerSources>({});
 
+	// Subtitle / lyrics state
+	const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([]);
+	const [subtitleEnabled, setSubtitleEnabled] = useState(false);
+	const [subtitlePos, setSubtitlePos] = useState('mb');
+	const [subtitleColor, setSubtitleColor] = useState('#ffffff');
+	const [subtitleOffset, setSubtitleOffset] = useState(0);
+	const [subtitleFontSize, setSubtitleFontSize] = useState(24);
+
 	const analysers = useMemo(() => {
 		if (!ready) return [] as (AnalyserNode | null)[];
 		return panels.map(p => p.band === 'full' ? analyserNode : (getBandAnalyser(p.band)));
@@ -704,6 +736,22 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				countFx={countFx}
 				setCountFx={setCountFx}
 			/>
+			<SubtitleSettings
+				openSections={openSections}
+				toggleSection={toggleSection}
+				subtitleCues={subtitleCues}
+				setSubtitleCues={setSubtitleCues}
+				subtitleEnabled={subtitleEnabled}
+				setSubtitleEnabled={setSubtitleEnabled}
+				subtitlePos={subtitlePos}
+				setSubtitlePos={setSubtitlePos}
+				subtitleColor={subtitleColor}
+				setSubtitleColor={setSubtitleColor}
+				subtitleOffset={subtitleOffset}
+				setSubtitleOffset={setSubtitleOffset}
+				subtitleFontSize={subtitleFontSize}
+				setSubtitleFontSize={setSubtitleFontSize}
+			/>
 			<ExportSettings
 				openSections={openSections}
 				toggleSection={toggleSection}
@@ -775,9 +823,28 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 									if (desc) { fd.append('desc', desc); fd.append('descPos', descPos); fd.append('descColor', descColor); if (descFx.float) fd.append('descFloat', '1'); if (descFx.bounce) fd.append('descBounce', '1'); if (descFx.pulse) fd.append('descPulse', '1'); }
 									fd.append('showCountdown', '1'); fd.append('countPos', countPos); fd.append('countColor', countColor); if (countFx.float) fd.append('countFloat', '1'); if (countFx.bounce) fd.append('countBounce', '1'); if (countFx.pulse) fd.append('countPulse', '1');
 									fd.append('bgMode', bgMode);
-									if (bgMode === 'color') fd.append('bgColor', bgColor);
-									if (bgMode === 'image' && bgImageUrl) fd.append('bgImageUrl', bgImageUrl);
+									fd.append('bgColor', bgColor); // always send – used as tint for viz-bg modes too
+									if (bgMode === 'image') {
+										if (bgImageUrl && bgImageUrl.startsWith('blob:')) {
+											try {
+												const blobResp = await fetch(bgImageUrl);
+												const imgBlob = await blobResp.blob();
+												const imgExt = (imgBlob.type.split('/')[1] || 'png').split(';')[0];
+												fd.append('bgImage', new File([imgBlob], `background.${imgExt}`, { type: imgBlob.type }));
+											} catch { /* skip if fetch fails */ }
+										} else if (bgImageUrl) {
+											fd.append('bgImageUrl', bgImageUrl);
+										}
+									}
 									fd.append('bgFit', bgFit); fd.append('bgOpacity', String(bgOpacity));
+									if (subtitleEnabled && subtitleCues.length > 0) {
+										fd.append('subtitleEnabled', '1');
+										fd.append('subtitleCues', JSON.stringify(subtitleCues));
+										fd.append('subtitlePos', subtitlePos);
+										fd.append('subtitleColor', subtitleColor);
+										fd.append('subtitleOffset', String(subtitleOffset));
+										fd.append('subtitleFontSize', String(subtitleFontSize));
+									}
 
 									const resp = await fetch(serverUrl, { method: 'POST', body: fd });
 									const reader = resp.body?.getReader();
@@ -963,6 +1030,12 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 									exportPhase={exportPhase}
 									canvasRef={canvasRef}
 									exportCanvasRef={exportCanvasRef}
+									subtitleCues={subtitleCues}
+									subtitleEnabled={subtitleEnabled}
+									subtitlePos={subtitlePos}
+									subtitleColor={subtitleColor}
+									subtitleOffset={subtitleOffset}
+									subtitleFontSize={subtitleFontSize}
 								/>
 							</div>
 							{/* Fullscreen toggle — outside scaled div so it stays at corner */}

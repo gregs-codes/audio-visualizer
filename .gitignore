@@ -33,3 +33,4 @@ dist-ssr
 *.sln
 *.sw?
 server/.server_pid
+rendered/

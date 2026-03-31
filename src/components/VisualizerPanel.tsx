@@ -5,6 +5,7 @@ import ThreeAudioVisualizer from '../visualizer/ThreeAudioVisualizer';
 import HexagonVisualizer from '../visualizer/HexagonVisualizer';
 import VisualizerOverlays from './VisualizerOverlays';
 import type { LayoutMode } from '../visualizer/GridVisualizerCanvas';
+import type { SubtitleCue } from '../subtitles/parseSrt';
 import {
   ParallaxBackgroundEngine,
   spotlightAnimate,
@@ -131,6 +132,13 @@ interface VisualizerPanelProps {
   exportPhase: any;
   canvasRef: React.RefObject<HTMLCanvasElement>;
   exportCanvasRef: React.RefObject<HTMLCanvasElement>;
+  // Subtitles
+  subtitleCues?: SubtitleCue[];
+  subtitleEnabled?: boolean;
+  subtitlePos?: string;
+  subtitleColor?: string;
+  subtitleOffset?: number;
+  subtitleFontSize?: number;
 }
 
 const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
@@ -166,6 +174,12 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
   exportPhase,
   canvasRef,
   exportCanvasRef,
+  subtitleCues = [],
+  subtitleEnabled = false,
+  subtitlePos = 'mb',
+  subtitleColor = '#ffffff',
+  subtitleOffset = 0,
+  subtitleFontSize = 24,
 }) => {
   // Determine the actual mode being used
   const mode = panels[0]?.mode;
@@ -207,6 +221,12 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
     stereo: stereo ? { left: stereo.left, right: stereo.right } : null,
     vuColor: color,
     vuPos: countPos, // Use countPos for VU meters like GridVisualizerCanvas does
+    subtitleCues,
+    subtitleEnabled,
+    subtitlePos,
+    subtitleColor,
+    subtitleOffset,
+    subtitleFontSize,
   };
 
   // Color conversion helper for WebGL visualizers
@@ -300,6 +320,7 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
             overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
             overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
             overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
+            overlaySubtitle={{ cues: subtitleCues, enabled: subtitleEnabled, position: subtitlePos, color: subtitleColor, fontSizePx: subtitleFontSize, offsetSecs: subtitleOffset }}
             exportPhase={exportPhase}
           />
         );
@@ -330,6 +351,7 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
           overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
           overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
           overlayVU={stereo ? { left: stereo.left, right: stereo.right, accentColor: color, position: countPos } : undefined}
+          overlaySubtitle={{ cues: subtitleCues, enabled: subtitleEnabled, position: subtitlePos, color: subtitleColor, fontSizePx: subtitleFontSize, offsetSecs: subtitleOffset }}
           exportPhase={exportPhase}
         />
       </div>
