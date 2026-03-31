@@ -6,7 +6,6 @@ import ThreeAudioVisualizer from '../visualizer/ThreeAudioVisualizer';
 import HexagonVisualizer from '../visualizer/HexagonVisualizer';
 import VisualizerOverlays from './VisualizerOverlays';
 import type { LayoutMode } from '../visualizer/GridVisualizerCanvas';
-import type { SubtitleCue } from '../subtitles/parseSrt';
 import {
   ParallaxBackgroundEngine,
   spotlightAnimate,

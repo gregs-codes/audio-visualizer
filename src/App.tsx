@@ -673,14 +673,6 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [dancerSize, setDancerSize] = useState<number>(40); // percent of canvas width
 	const [dancerOverlaySources, setDancerOverlaySources] = useState<DancerSources>({});
 
-	// Subtitle / lyrics state
-	const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([]);
-	const [subtitleEnabled, setSubtitleEnabled] = useState(false);
-	const [subtitlePos, setSubtitlePos] = useState('mb');
-	const [subtitleColor, setSubtitleColor] = useState('#ffffff');
-	const [subtitleOffset, setSubtitleOffset] = useState(0);
-	const [subtitleFontSize, setSubtitleFontSize] = useState(24);
-
 	const analysers = useMemo(() => {
 		if (!ready) return [] as (AnalyserNode | null)[];
 		return panels.map(p => p.band === 'full' ? analyserNode : (getBandAnalyser(p.band)));
