@@ -1338,6 +1338,7 @@ const radarSweep = (r: RenderContext) => {
 const orbitalParticles = (r: RenderContext) => {
   const { ctx, x, y, w, h, panel, energy, panelKey, freq } = r;
   const key = `${panelKey}:orbit`;
+  const sf = Math.min(w, h) / 480; // scale factor relative to 480p baseline
   type Part = { angle: number; radius: number; speed: number; size: number };
   const parts = getState<Part[]>(key, () => {
     const N = Math.floor(Math.max(30, (w + h) / 20));
@@ -1347,7 +1348,7 @@ const orbitalParticles = (r: RenderContext) => {
       angle: Math.random() * Math.PI * 2,
       radius: minR + Math.random() * (maxR - minR),
       speed: 0.3 + Math.random() * 0.8,
-      size: 1.5 + Math.random() * 1.5,
+      size: (1.5 + Math.random() * 1.5) * sf,
     }));
   });
   const cx = x + w / 2; const cy = y + h / 2;
@@ -1361,14 +1362,19 @@ const orbitalParticles = (r: RenderContext) => {
     p.angle += (p.speed + fv * 1.2) * 0.02 * (1 + energy * 0.6);
     const px = cx + Math.cos(p.angle) * p.radius;
     const py = cy + Math.sin(p.angle) * p.radius;
-    const glow = 6 + fv * 24 + energy * 10;
+    const coreR = p.size * (1 + fv * 0.8 + energy * 0.4);
+    const glowR = (6 + fv * 24 + energy * 10) * sf;
+    const alpha = 0.5 + fv * 0.5;
     const partColor = pickColor(ratioR, panel.colors, panel.color);
-    ctx.shadowColor = partColor;
-    ctx.shadowBlur = glow;
-    ctx.globalAlpha = 0.5 + fv * 0.5;
-    ctx.fillStyle = partColor;
+    // Use radial gradient for glow (renders consistently in headless and normal Chrome)
+    const grad = ctx.createRadialGradient(px, py, 0, px, py, coreR + glowR);
+    grad.addColorStop(0, partColor);
+    grad.addColorStop(coreR / (coreR + glowR), partColor);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(px, py, p.size * (1 + fv * 0.8 + energy * 0.4), 0, Math.PI * 2);
+    ctx.arc(px, py, coreR + glowR, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;

@@ -30,6 +30,7 @@ const EXTENDED_CATEGORIES = {
 };
 import type { LayoutMode } from './visualizer/GridVisualizerCanvas';
 import { useCanvasRecorder } from './recorder/useCanvasRecorder';
+import type { SubtitleCue } from './subtitles/parseSrt';
 
 export default function App() {
 	const { audioRef, init, getAudioStream, getBandAnalyser, getStereoAnalysers, setPlaybackMuted, setPlaybackVolume } = useAudioAnalyzer();
@@ -671,6 +672,14 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [dancerPos, setDancerPos] = useState<Position9>('mm');
 	const [dancerSize, setDancerSize] = useState<number>(40); // percent of canvas width
 	const [dancerOverlaySources, setDancerOverlaySources] = useState<DancerSources>({});
+
+	// Subtitle / lyrics state
+	const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([]);
+	const [subtitleEnabled, setSubtitleEnabled] = useState(false);
+	const [subtitlePos, setSubtitlePos] = useState('mb');
+	const [subtitleColor, setSubtitleColor] = useState('#ffffff');
+	const [subtitleOffset, setSubtitleOffset] = useState(0);
+	const [subtitleFontSize, setSubtitleFontSize] = useState(24);
 
 	const analysers = useMemo(() => {
 		if (!ready) return [] as (AnalyserNode | null)[];

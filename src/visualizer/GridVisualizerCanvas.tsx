@@ -15,6 +15,8 @@ import { renderHighGfxCellsWithFeatures } from './highgfx/HighGfxCellsEngine';
 import { renderHighGfxFogWithFeatures } from './highgfx/HighGfxFogEngine';
 import { renderHighGfxTrunkWithFeatures } from './highgfx/HighGfxTrunkEngine';
 import { renderHighGfxRingsWithFeatures } from './highgfx/HighGfxRingsEngine';
+import { getActiveCue } from '../subtitles/parseSrt';
+import type { SubtitleCue } from '../subtitles/parseSrt';
 import { renderHighGfxNetWithFeatures } from './highgfx/HighGfxNetEngine';
 import { renderHighGfxRingsTrailsWithFeatures } from './highgfx/HighGfxRingsTrailsEngine';
 import { renderHighGfxKaleidoscopeWithFeatures } from './highgfx/HighGfxKaleidoscopeEngine';

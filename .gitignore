@@ -38,3 +38,4 @@ server/data/*.db-wal
 *.sln
 *.sw?
 server/.server_pid
+rendered/

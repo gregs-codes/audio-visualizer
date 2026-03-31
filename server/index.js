@@ -228,6 +228,41 @@ app.post('/render', upload.fields([
       protocolTimeout: 0,
     });
     const page = await browser.newPage();
+    // Set viewport to match the output resolution so the app renders at the correct size
+    const resH = parseInt(resolution) || 720;
+    const [aw, ah] = (aspect || '16:9').split(':').map(Number);
+    const resW = Math.round(resH * (aw || 16) / (ah || 9));
+    await page.setViewport({ width: resW, height: resH, deviceScaleFactor: 1 });
+
+    // Override requestAnimationFrame to fire at exactly the target fps using setInterval.
+    // In headless Chrome, RAF is not driven by a real display vsync and can fire much slower
+    // than requested (especially under GPU load). This causes fixed-per-frame animations to
+    // appear in slow motion in the exported video. Driving RAF via setInterval guarantees
+    // the render loop always advances at the correct real-time rate.
+    const targetFps = parseInt(fps) || 30;
+    await page.addInitScript((intervalMs) => {
+      const pending = [];
+      let idCounter = 0;
+      const pump = setInterval(() => {
+        const now = performance.now();
+        const batch = pending.splice(0);
+        for (const [, cb] of batch) {
+          try { cb(now); } catch {}
+        }
+      }, intervalMs);
+      // Keep the pump alive (don't let GC kill it)
+      window.__rafPump = pump;
+      window.requestAnimationFrame = (cb) => {
+        const id = ++idCounter;
+        pending.push([id, cb]);
+        return id;
+      };
+      window.cancelAnimationFrame = (targetId) => {
+        const idx = pending.findIndex(([id]) => id === targetId);
+        if (idx !== -1) pending.splice(idx, 1);
+      };
+    }, Math.round(1000 / targetFps));
+
     activeBrowser = browser; // Track for cleanup
     // Disable default timeouts to allow long renders
     page.setDefaultTimeout(0);
