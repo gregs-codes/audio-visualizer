@@ -11,6 +11,7 @@ import { TextOverlaySettings } from './components/TextOverlaySettings';
 import { ExportSettings } from './components/ExportSettings';
 import { SubtitleSettings } from './components/SubtitleSettings';
 import { useAudioAnalyzer } from './audio/useAudioAnalyzer';
+import { useVideoScenes } from './hooks/useVideoScenes';
 import type { VisualizerMode, FrequencyBand } from './visualizer/visualizerModes';
 import type { DancerSources } from './visualizer/dancer/DancerEngine';
 import { ANIMATION_FILES } from './visualizer/dancer/animations';
@@ -41,11 +42,17 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [theme, setTheme] = useState('dark');
 	const [color, setColor] = useState('#a0b4f7');
 	// Background controls
-	const [bgMode, setBgMode] = useState<'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'>('none');
+	const [bgMode, setBgMode] = useState<'none'|'color'|'image'|'video'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'>('none');
 	const [bgColor, setBgColor] = useState<string>('#101321');
 	const [bgImageUrl, setBgImageUrl] = useState<string>('');
 	const [bgFit, setBgFit] = useState<'cover'|'contain'|'stretch'>('cover');
 	const [bgOpacity, setBgOpacity] = useState<number>(1);
+	const [bgVideoUrls, setBgVideoUrls] = useState<string[]>([]);
+	const [bgVideoZoom, setBgVideoZoom] = useState<number>(1);
+	const [bgVideoOffsetX, setBgVideoOffsetX] = useState<number>(0);
+	const [bgVideoOffsetY, setBgVideoOffsetY] = useState<number>(0);
+	const bgVideoRef = useRef<HTMLVideoElement | null>(null);
+	useVideoScenes(bgVideoRef, bgVideoUrls, bgMode === 'video');
 	const [ready, setReady] = useState(false);
 	const [layout, setLayout] = useState<LayoutMode>('1');
 	const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
@@ -705,6 +712,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 
 	return (
 		<>
+			<video ref={bgVideoRef} muted playsInline crossOrigin="anonymous" style={{ display: 'none', position: 'absolute', pointerEvents: 'none' }} />
 			<div className="viz-glow viz-glow-1" />
 			<div className="viz-glow viz-glow-2" />
 			<div className="viz-glow viz-glow-3" />
@@ -742,6 +750,14 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				setBgFit={v => setBgFit(v as typeof bgFit)}
 				bgOpacity={bgOpacity}
 				setBgOpacity={setBgOpacity}
+				bgVideoUrls={bgVideoUrls}
+				setBgVideoUrls={setBgVideoUrls}
+				bgVideoZoom={bgVideoZoom}
+				setBgVideoZoom={setBgVideoZoom}
+				bgVideoOffsetX={bgVideoOffsetX}
+				setBgVideoOffsetX={setBgVideoOffsetX}
+				bgVideoOffsetY={bgVideoOffsetY}
+				setBgVideoOffsetY={setBgVideoOffsetY}
 			/>
 			<PanelsSettings
 				openSections={openSections}
@@ -1112,6 +1128,10 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 									exportPhase={exportPhase}
 									canvasRef={canvasRef}
 									exportCanvasRef={exportCanvasRef}
+									bgVideoRef={bgVideoRef}
+									bgVideoZoom={bgVideoZoom}
+									bgVideoOffsetX={bgVideoOffsetX}
+									bgVideoOffsetY={bgVideoOffsetY}
 									subtitleCues={subtitleCues}
 									subtitleEnabled={subtitleEnabled}
 									subtitlePos={subtitlePos}

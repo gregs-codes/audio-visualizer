@@ -40,7 +40,11 @@ type Props = {
   backgroundImageUrl?: string; // optional image background (local URL)
   backgroundFit?: 'cover'|'contain'|'stretch';
   backgroundOpacity?: number; // 0..1
-  bgMode?: 'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs';
+  bgMode?: 'none'|'color'|'image'|'video'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs';
+  bgVideoRef?: React.RefObject<HTMLVideoElement | null>;
+  bgVideoZoom?: number;
+  bgVideoOffsetX?: number;
+  bgVideoOffsetY?: number;
   overlayTitle?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayDescription?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayCountdown?: { enabled: boolean; position: 'lt'|'ct'|'rt'|'bl'|'br'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
@@ -73,6 +77,10 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
   bgMode = 'none',
   bgParallax = false,
   parallaxEngine = undefined,
+  bgVideoRef,
+  bgVideoZoom = 1,
+  bgVideoOffsetX = 0,
+  bgVideoOffsetY = 0,
   instanceKey = 'main',
 }, ref) {
   const innerRef = useRef<HTMLCanvasElement>(null);
@@ -214,7 +222,30 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
       analyser.getByteFrequencyData(baseFreq);
       const timeNow = performance.now() / 1000;
       // Draw background: parallax, color, image, or audio-reactive viz
-      if (bgMode === 'parallax-spotlights' || bgMode === 'parallax-lasers' || bgMode === 'parallax-tunnel' || bgMode === 'parallax-rays') {
+      if (bgMode === 'video') {
+        const video = bgVideoRef?.current;
+        if (video && video.readyState >= 2) {
+          const vw = video.videoWidth || c.width;
+          const vh = video.videoHeight || c.height;
+          const cw = c.width, ch = c.height;
+          let dx = 0, dy = 0, dw = cw, dh = ch;
+          if (backgroundFit === 'contain') {
+            const scale = Math.min(cw / vw, ch / vh) * bgVideoZoom;
+            dw = Math.ceil(vw * scale); dh = Math.ceil(vh * scale);
+            dx = Math.floor((cw - dw) / 2); dy = Math.floor((ch - dh) / 2);
+          } else if (backgroundFit === 'stretch') {
+            dw = Math.ceil(cw * bgVideoZoom); dh = Math.ceil(ch * bgVideoZoom);
+            dx = Math.floor((cw - dw) / 2); dy = Math.floor((ch - dh) / 2);
+          } else {
+            const scale = Math.max(cw / vw, ch / vh) * bgVideoZoom;
+            dw = Math.ceil(vw * scale); dh = Math.ceil(vh * scale);
+            dx = Math.floor((cw - dw) / 2); dy = Math.floor((ch - dh) / 2);
+          }
+          dx += Math.round(bgVideoOffsetX / 100 * cw);
+          dy += Math.round(bgVideoOffsetY / 100 * ch);
+          try { ctx.drawImage(video, dx, dy, dw, dh); } catch {}
+        }
+      } else if (bgMode === 'parallax-spotlights' || bgMode === 'parallax-lasers' || bgMode === 'parallax-tunnel' || bgMode === 'parallax-rays') {
         if (!parallaxRef.current || parallaxRef.current.bgMode !== bgMode) {
           let layers;
           switch (bgMode) {
@@ -518,7 +549,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
     };
     raf = requestAnimationFrame(render);
     return () => { cancelled = true; cancelAnimationFrame(raf); };
-  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU, overlaySubtitle, exportPhase, bgParallax, parallaxEngine]);
+  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU, overlaySubtitle, exportPhase, bgParallax, parallaxEngine, bgVideoRef, bgVideoZoom, bgVideoOffsetX, bgVideoOffsetY]);
 
   return <canvas ref={innerRef} width={width} height={height} />;
 });
