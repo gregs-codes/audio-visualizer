@@ -19,12 +19,21 @@ interface GeneralSettingsProps {
   setBgFit: (v: string) => void;
   bgOpacity: number;
   setBgOpacity: (v: number) => void;
+  bgVideoUrls: string[];
+  setBgVideoUrls: (v: string[]) => void;
+  bgVideoZoom: number;
+  setBgVideoZoom: (v: number) => void;
+  bgVideoOffsetX: number;
+  setBgVideoOffsetX: (v: number) => void;
+  bgVideoOffsetY: number;
+  setBgVideoOffsetY: (v: number) => void;
 }
 
 export function GeneralSettings(props: GeneralSettingsProps) {
   const {
     openSections, toggleSection, layout, setLayout, theme, setTheme, color, setColor,
-    bgMode, setBgMode, bgColor, setBgColor, bgImageUrl, setBgImageUrl, bgFit, setBgFit, bgOpacity, setBgOpacity
+    bgMode, setBgMode, bgColor, setBgColor, bgImageUrl, setBgImageUrl, bgFit, setBgFit, bgOpacity, setBgOpacity,
+    bgVideoUrls, setBgVideoUrls, bgVideoZoom, setBgVideoZoom, bgVideoOffsetX, setBgVideoOffsetX, bgVideoOffsetY, setBgVideoOffsetY,
   } = props;
   return (
     <div className="section">
@@ -63,6 +72,7 @@ export function GeneralSettings(props: GeneralSettingsProps) {
                 <option value='none'>None</option>
                 <option value='color'>Color</option>
                 <option value='image'>Image</option>
+                <option value='video'>Video (Scenes)</option>
                 <optgroup label="Parallax">
                   <option value='parallax-spotlights'>Parallax (Spotlights)</option>
                   <option value='parallax-lasers'>Parallax (Lasers)</option>
@@ -115,6 +125,60 @@ export function GeneralSettings(props: GeneralSettingsProps) {
                   <span style={{ width: 32, textAlign: 'right', fontSize: 11 }}>{Math.round(bgOpacity * 100)}%</span>
                 </label>
               </>
+            )}
+            {bgMode === 'video' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4, width: '100%' }}>
+                <div className="field-row">
+                  <label>Fit
+                    <select value={bgFit} onChange={e => setBgFit(e.target.value)}>
+                      <option value='cover'>Cover</option>
+                      <option value='contain'>Contain</option>
+                      <option value='stretch'>Stretch</option>
+                    </select>
+                  </label>
+                  <label>Zoom
+                    <input type='range' min={100} max={300} value={Math.round(bgVideoZoom * 100)} onChange={e => setBgVideoZoom(parseInt(e.target.value, 10) / 100)} />
+                    <span style={{ width: 36, textAlign: 'right', fontSize: 11 }}>{Math.round(bgVideoZoom * 100)}%</span>
+                  </label>
+                </div>
+                <div className="field-row">
+                  <label>X
+                    <input type='range' min={-100} max={100} value={bgVideoOffsetX} onChange={e => setBgVideoOffsetX(parseInt(e.target.value, 10))} />
+                    <span style={{ width: 36, textAlign: 'right', fontSize: 11 }}>{bgVideoOffsetX > 0 ? '+' : ''}{bgVideoOffsetX}%</span>
+                  </label>
+                  <label>Y
+                    <input type='range' min={-100} max={100} value={bgVideoOffsetY} onChange={e => setBgVideoOffsetY(parseInt(e.target.value, 10))} />
+                    <span style={{ width: 36, textAlign: 'right', fontSize: 11 }}>{bgVideoOffsetY > 0 ? '+' : ''}{bgVideoOffsetY}%</span>
+                  </label>
+                </div>
+                {bgVideoUrls.map((url, i) => (
+                  <div key={i} className="field-row" style={{ gap: 4, alignItems: 'center' }}>
+                    <button className="icon-btn" style={{ color: '#ff6b6b', minWidth: 24 }} onClick={() => {
+                      URL.revokeObjectURL(url);
+                      setBgVideoUrls(bgVideoUrls.filter((_, j) => j !== i));
+                    }}>✕</button>
+                    <span style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Scene {i + 1}</span>
+                    <div className="upload" style={{ position: 'relative' }}>
+                      <button className="icon-btn" style={{ fontSize: 11 }}>Change</button>
+                      <input type='file' accept='video/*' style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} onChange={e => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        URL.revokeObjectURL(url);
+                        const next = bgVideoUrls.slice();
+                        next[i] = URL.createObjectURL(f);
+                        setBgVideoUrls(next);
+                      }} />
+                    </div>
+                  </div>
+                ))}
+                <div className="upload" style={{ position: 'relative', display: 'inline-block' }}>
+                  <button className="icon-btn">+ Add Scene</button>
+                  <input type='file' accept='video/*' style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) setBgVideoUrls([...bgVideoUrls, URL.createObjectURL(f)]);
+                  }} />
+                </div>
+              </div>
             )}
           </div>
         </div>

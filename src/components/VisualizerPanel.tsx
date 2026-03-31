@@ -27,11 +27,15 @@ const ThreeJsBgLayer: React.FC<{
   width: number;
   height: number;
   analyser: AnalyserNode | null;
-}> = ({ bgMode, bgColor, bgImageUrl, bgFit, bgOpacity, width, height, analyser }) => {
+  bgVideoRef?: React.RefObject<HTMLVideoElement | null>;
+  bgVideoZoom?: number;
+  bgVideoOffsetX?: number;
+  bgVideoOffsetY?: number;
+}> = ({ bgMode, bgColor, bgImageUrl, bgFit, bgOpacity, width, height, analyser, bgVideoRef, bgVideoZoom = 1, bgVideoOffsetX = 0, bgVideoOffsetY = 0 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const parallaxRef = useRef<ParallaxBackgroundEngine & { bgMode?: string } | null>(null);
   const rafRef = useRef<number>();
-  const isAnimated = bgMode?.startsWith('parallax-') || bgMode?.startsWith('bg-viz-');
+  const isAnimated = bgMode?.startsWith('parallax-') || bgMode?.startsWith('bg-viz-') || bgMode === 'video';
 
   useEffect(() => {
     if (!isAnimated) return;
@@ -52,7 +56,29 @@ const ThreeJsBgLayer: React.FC<{
       ctx.clearRect(0, 0, width, height);
       const time = performance.now();
 
-      if (bgMode === 'parallax-spotlights' || bgMode === 'parallax-lasers' || bgMode === 'parallax-tunnel' || bgMode === 'parallax-rays') {
+      if (bgMode === 'video') {
+        const video = bgVideoRef?.current;
+        if (video && video.readyState >= 2) {
+          const vw = video.videoWidth || width;
+          const vh = video.videoHeight || height;
+          let dx = 0, dy = 0, dw = width, dh = height;
+          if (bgFit === 'contain') {
+            const scale = Math.min(width / vw, height / vh) * bgVideoZoom;
+            dw = Math.ceil(vw * scale); dh = Math.ceil(vh * scale);
+            dx = Math.floor((width - dw) / 2); dy = Math.floor((height - dh) / 2);
+          } else if (bgFit === 'stretch') {
+            dw = Math.ceil(width * bgVideoZoom); dh = Math.ceil(height * bgVideoZoom);
+            dx = Math.floor((width - dw) / 2); dy = Math.floor((height - dh) / 2);
+          } else {
+            const scale = Math.max(width / vw, height / vh) * bgVideoZoom;
+            dw = Math.ceil(vw * scale); dh = Math.ceil(vh * scale);
+            dx = Math.floor((width - dw) / 2); dy = Math.floor((height - dh) / 2);
+          }
+          dx += Math.round(bgVideoOffsetX / 100 * width);
+          dy += Math.round(bgVideoOffsetY / 100 * height);
+          try { ctx.drawImage(video, dx, dy, dw, dh); } catch {}
+        }
+      } else if (bgMode === 'parallax-spotlights' || bgMode === 'parallax-lasers' || bgMode === 'parallax-tunnel' || bgMode === 'parallax-rays') {
         if (!parallaxRef.current || parallaxRef.current.bgMode !== bgMode) {
           let layers: any[];
           switch (bgMode) {
@@ -79,7 +105,7 @@ const ThreeJsBgLayer: React.FC<{
     };
     rafRef.current = requestAnimationFrame(animate);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [bgMode, width, height, analyser, bgColor]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [bgMode, width, height, analyser, bgColor, bgVideoRef, bgVideoZoom, bgVideoOffsetX, bgVideoOffsetY]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const base: React.CSSProperties = { position: 'absolute', inset: 0, zIndex: 0 };
 
@@ -114,11 +140,15 @@ interface VisualizerPanelProps {
   previewSize: { w: number; h: number };
   effectiveSize: { w: number; h: number };
   audioEl: HTMLAudioElement | null;
-  bgMode: 'none'|'color'|'image'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'|undefined;
+  bgMode: 'none'|'color'|'image'|'video'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'|undefined;
   bgColor: string;
   bgImageUrl: string;
   bgFit: 'cover'|'contain'|'stretch'|undefined;
   bgOpacity: number;
+  bgVideoRef?: React.RefObject<HTMLVideoElement | null>;
+  bgVideoZoom?: number;
+  bgVideoOffsetX?: number;
+  bgVideoOffsetY?: number;
   title: string;
   titlePos: any;
   titleColor: string;
@@ -181,6 +211,10 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
   exportPhase,
   canvasRef,
   exportCanvasRef,
+  bgVideoRef,
+  bgVideoZoom = 1,
+  bgVideoOffsetX = 0,
+  bgVideoOffsetY = 0,
   subtitleCues = [],
   subtitleEnabled = false,
   subtitlePos = 'mb',
@@ -253,6 +287,10 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
     width: previewSize.w,
     height: previewSize.h,
     analyser: analyserNode,
+    bgVideoRef,
+    bgVideoZoom,
+    bgVideoOffsetX,
+    bgVideoOffsetY,
   };
 
   // Helper to attach the main visualizer canvas (for Three.js / hexagon modes)
@@ -331,6 +369,10 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
             backgroundOpacity={bgOpacity}
             bgMode={bgMode}
             instanceKey={'preview'}
+            bgVideoRef={bgVideoRef}
+            bgVideoZoom={bgVideoZoom}
+            bgVideoOffsetX={bgVideoOffsetX}
+            bgVideoOffsetY={bgVideoOffsetY}
             overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
             overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
             overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
@@ -361,8 +403,10 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
           backgroundFit={bgFit}
           backgroundOpacity={bgOpacity}
           bgMode={bgMode}
-          instanceKey={'export'}
-          overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
+          instanceKey={'export'}            bgVideoRef={bgVideoRef}
+            bgVideoZoom={bgVideoZoom}
+            bgVideoOffsetX={bgVideoOffsetX}
+            bgVideoOffsetY={bgVideoOffsetY}          overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
           overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
           overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
           overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
