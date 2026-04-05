@@ -6,6 +6,7 @@ import type { AudioFeatures } from '../../audio/audioFeatures';
 export type DancerSources = {
   characterUrl?: string; // e.g., '/character/hero.fbx'
   animationUrls?: string[]; // e.g., ['/dance/d1.fbx', '/dance/d2.fbx']
+  clipIndex?: number; // -1 = auto-cycle, 0+ = lock to this embedded/loaded clip index
   cameraMode?: 'static' | 'pan' | 'rotate';
   cameraElevationPct?: number; // -0.2..0.2 relative to baseline
   cameraTiltDeg?: number; // -15..15 degrees tilt up/down via target offset
@@ -26,6 +27,7 @@ type Engine = {
   idleAction?: THREE.AnimationAction;
   currentAction?: THREE.AnimationAction;
   clips: THREE.AnimationClip[];
+  loadedAnimUrls: string[]; // tracks which animation URLs have been loaded
   lastSwitch: number;
   curClip: number;
   ready: boolean;
@@ -105,6 +107,7 @@ async function initEngine(key: string, sources: DancerSources): Promise<Engine> 
     canvas, renderer, scene, camera, clock,
     mixer: undefined,
     clips: [],
+    loadedAnimUrls: [],
     lastSwitch: 0,
     curClip: 0,
     ready: false,
@@ -126,6 +129,11 @@ async function initEngine(key: string, sources: DancerSources): Promise<Engine> 
         const mesh = obj as THREE.Mesh;
   if ((mesh as { isMesh?: boolean }).isMesh) { mesh.castShadow = true; (mesh as unknown as { receiveShadow?: boolean }).receiveShadow = true; }
       });
+      // Load animations embedded directly in the character FBX (e.g. when a single file
+      // contains both mesh + animations) — these are available before external anim files
+      if ((charFBX as any).animations?.length) {
+        engine.clips.push(...(charFBX as any).animations);
+      }
       // Center and ground the character using its bounding box
       const box = new THREE.Box3().setFromObject(charFBX);
       const size = new THREE.Vector3(); box.getSize(size);
@@ -149,7 +157,7 @@ async function initEngine(key: string, sources: DancerSources): Promise<Engine> 
     console.warn('Failed to load character FBX', e);
   }
 
-  // Load animations and start idle/groove base so model is always animating
+  // Load external animation FBX files and start idle/groove base
   if (engine.mixer && sources.animationUrls && sources.animationUrls.length) {
     for (const url of sources.animationUrls) {
       try {
@@ -157,24 +165,27 @@ async function initEngine(key: string, sources: DancerSources): Promise<Engine> 
         if (animFBX.animations && animFBX.animations.length) {
           engine.clips.push(...animFBX.animations);
         }
+        engine.loadedAnimUrls.push(url);
       } catch (e) {
         console.warn('Failed to load animation FBX', url, e);
+        engine.loadedAnimUrls.push(url); // mark as attempted so we don't retry
       }
     }
-    if (engine.clips.length > 0) {
-      // Always keep an idle/groove base animation running at low weight
-      const idleClip = engine.clips[0];
-      const idle = engine.mixer.clipAction(idleClip);
-      idle.setLoop(THREE.LoopRepeat, Infinity);
-      idle.clampWhenFinished = false;
-      idle.enabled = true;
-      idle.setEffectiveWeight(0.6); // visible base groove
-      idle.reset().play();
-      engine.idleAction = idle;
-      engine.currentAction = undefined; // no active overriding clip initially
-      // Reveal character once idle is actively playing
-      if (engine.character) engine.character.visible = true;
-    }
+  }
+  // Start idle from first available clip (embedded or external)
+  if (engine.mixer && engine.clips.length > 0) {
+    // Always keep an idle/groove base animation running at low weight
+    const idleClip = engine.clips[0];
+    const idle = engine.mixer.clipAction(idleClip);
+    idle.setLoop(THREE.LoopRepeat, Infinity);
+    idle.clampWhenFinished = false;
+    idle.enabled = true;
+    idle.setEffectiveWeight(0.6); // visible base groove
+    idle.reset().play();
+    engine.idleAction = idle;
+    engine.currentAction = undefined; // no active overriding clip initially
+    // Reveal character once idle is actively playing
+    if (engine.character) engine.character.visible = true;
   }
 
   engine.ready = true;
@@ -190,10 +201,44 @@ async function initEngine(key: string, sources: DancerSources): Promise<Engine> 
   return engine;
 }
 
+/** Returns clip names for an already-loaded dancer engine (by exact key). */
+export function getDancerClipNames(key: string): string[] {
+  return engines.get(key)?.clips.map(c => c.name) ?? [];
+}
+
 /**
- * Legacy energy-driven dancer rendering (kept for preview compatibility).
- * For overlay, prefer `renderDancerWithFeatures`.
+ * Dynamically load any animation URLs not yet in the engine.
+ * Call this each render frame to support adding animations at runtime.
  */
+async function syncAnimationUrls(eng: Engine): Promise<void> {
+  const currentUrls = eng.sources.animationUrls ?? [];
+  const newUrls = currentUrls.filter(url => !eng.loadedAnimUrls.includes(url));
+  if (!newUrls.length || !eng.mixer) return;
+  for (const url of newUrls) {
+    eng.loadedAnimUrls.push(url); // mark immediately to avoid double-loading
+    try {
+      const animFBX = await loadFBX(url);
+      if (animFBX.animations?.length) {
+        eng.clips.push(...animFBX.animations);
+      }
+    } catch (e) {
+      console.warn('Failed to load animation FBX', url, e);
+    }
+  }
+  // If idle wasn't started yet (character had no embedded anims), kick it off now
+  if (eng.clips.length > 0 && !eng.idleAction && eng.mixer) {
+    const idle = eng.mixer.clipAction(eng.clips[0]);
+    idle.setLoop(THREE.LoopRepeat, Infinity);
+    idle.clampWhenFinished = false;
+    idle.enabled = true;
+    idle.setEffectiveWeight(0.6);
+    idle.reset().play();
+    eng.idleAction = idle;
+    if (eng.character) eng.character.visible = true;
+  }
+}
+
+
 export async function renderDancer(
   key: string,
   sources: DancerSources,
@@ -207,6 +252,9 @@ export async function renderDancer(
   const eng = await initEngine(key, sources);
   // Always update engine sources so camera/flash settings apply immediately
   eng.sources = sources;
+  // Dynamically add any newly-selected animation URLs
+  await syncAnimationUrls(eng);
+
   if (eng.canvas.width !== Math.floor(width) || eng.canvas.height !== Math.floor(height)) {
     eng.canvas.width = Math.floor(width);
     eng.canvas.height = Math.floor(height);
@@ -222,9 +270,7 @@ export async function renderDancer(
     let highEnergy = 0; for (let i = freq.length - highBins; i < freq.length; i++) highEnergy += freq[i];
     highEnergy = highEnergy / (255 * Math.max(1, highBins));
     const timeScale = isPlaying ? (1 + Math.min(0.2, energy * 0.15 + (highEnergy > 0.7 ? 0.05 : 0))) : 0;
-    // Set mixer timeScale to pause animation when audio is paused
     eng.mixer.timeScale = timeScale;
-    // Always advance mixer; timeScale gates animation speed
     (eng.mixer as THREE.AnimationMixer).update(delta);
     // Ensure idle never drops to zero weight
     if (eng.idleAction) {
@@ -234,26 +280,37 @@ export async function renderDancer(
       eng.idleAction.enabled = true;
       eng.idleAction.play();
     }
-    // Switch animations on peaks (high-frequency energy)
-    if (isPlaying && highEnergy > 0.65 && now - eng.lastSwitch > 2 && eng.clips.length > 1) {
-      eng.lastSwitch = now;
-      // Pick a random different clip index
-      let nextIdx = eng.curClip;
-      if (eng.clips.length > 1) {
-        for (let tries = 0; tries < 4; tries++) {
-          const candidate = Math.floor(Math.random() * eng.clips.length);
-          if (candidate !== eng.curClip) { nextIdx = candidate; break; }
-        }
+
+    // Manual clip selection via clipIndex
+    const clipIdx = sources.clipIndex ?? -1;
+    if (clipIdx >= 0 && eng.clips.length > 0) {
+      const idx = Math.min(clipIdx, eng.clips.length - 1);
+      if (eng.curClip !== idx) {
+        eng.curClip = idx;
+        const next = eng.mixer.clipAction(eng.clips[idx]);
+        next.setLoop(THREE.LoopRepeat, Infinity);
+        next.setEffectiveWeight(1);
+        if (eng.currentAction) eng.currentAction.fadeOut(0.25);
+        next.reset().fadeIn(0.25).play();
+        eng.currentAction = next;
       }
-      eng.curClip = nextIdx;
-      // fade to next clip
-      const next = eng.mixer.clipAction(eng.clips[eng.curClip]);
-      next.setLoop(THREE.LoopRepeat, Infinity);
-      next.setEffectiveWeight(1);
-      next.setEffectiveTimeScale(1);
-      if (eng.currentAction) eng.currentAction.fadeOut(0.2);
-      next.reset(); next.fadeIn(0.2); next.play();
-      eng.currentAction = next;
+    } else if (eng.clips.length > 1) {
+      // Auto-cycle: switch on audio peak OR every 5 seconds as a reliable fallback
+      const timeSinceSwitch = now - eng.lastSwitch;
+      const onPeak = isPlaying && highEnergy > 0.5 && timeSinceSwitch > 2;
+      const onTimer = isPlaying && timeSinceSwitch > 5;
+      if (onPeak || onTimer) {
+        eng.lastSwitch = now;
+        // Sequential cycle through clips (predictable order)
+        eng.curClip = (eng.curClip + 1) % eng.clips.length;
+        const next = eng.mixer.clipAction(eng.clips[eng.curClip]);
+        next.setLoop(THREE.LoopRepeat, Infinity);
+        next.setEffectiveWeight(1);
+        next.setEffectiveTimeScale(1);
+        if (eng.currentAction) eng.currentAction.fadeOut(0.2);
+        next.reset(); next.fadeIn(0.2); next.play();
+        eng.currentAction = next;
+      }
     }
   }
   // Camera movement modes
@@ -431,6 +488,9 @@ export async function renderDancerWithFeatures(
 ): Promise<HTMLCanvasElement> {
   const eng = await initEngine(key, sources);
   eng.sources = sources;
+  // Dynamically add any newly-selected animation URLs
+  await syncAnimationUrls(eng);
+
   if (eng.canvas.width !== Math.floor(width) || eng.canvas.height !== Math.floor(height)) {
     eng.canvas.width = Math.floor(width);
     eng.canvas.height = Math.floor(height);
@@ -630,26 +690,36 @@ export async function renderDancerWithFeatures(
       eng.idleAction.play();
     }
 
-    // Clip switching: on kick or strong beat pulse, with cooldown
-    if (isPlaying && eng.clips.length > 1) {
-      const shouldSwitch = features.kick || features.beatPulse > 0.92;
-      if (shouldSwitch && (now - eng.lastSwitch) > 1.5) {
+    // Clip switching: manual selection, beat-driven, or time-based fallback
+    const clipIdx = eng.sources.clipIndex ?? -1;
+    if (clipIdx >= 0 && eng.clips.length > 0) {
+      // Manual: lock to specified clip
+      const idx = Math.min(clipIdx, eng.clips.length - 1);
+      if (eng.curClip !== idx) {
+        eng.curClip = idx;
+        const next = eng.mixer.clipAction(eng.clips[idx]);
+        next.setLoop(THREE.LoopRepeat, Infinity);
+        next.setEffectiveWeight(1);
+        if (eng.currentAction) eng.currentAction.fadeOut(0.25);
+        next.reset().fadeIn(0.25).play();
+        eng.currentAction = next;
+      }
+    } else if (isPlaying && eng.clips.length > 1) {
+      const timeSinceSwitch = now - eng.lastSwitch;
+      // Switch on beat event OR every 5 seconds as a reliable timer fallback
+      const onBeat = (features.kick || features.beatPulse > 0.85) && timeSinceSwitch > 1.5;
+      const onTimer = timeSinceSwitch > 5;
+      if (onBeat || onTimer) {
         eng.lastSwitch = now;
-        // pick a different clip index
-        let nextIdx = eng.curClip;
-        for (let tries = 0; tries < 5; tries++) {
-          const candidate = Math.floor(Math.random() * eng.clips.length);
-          if (candidate !== eng.curClip && candidate !== 0) { nextIdx = candidate; break; }
-        }
-        eng.curClip = nextIdx;
+        // Sequential cycle (predictable) instead of pure random
+        eng.curClip = (eng.curClip + 1) % eng.clips.length;
         const clip = eng.clips[eng.curClip];
         const next = eng.mixer.clipAction(clip);
         const isOneShot = clip.duration <= 3 || /pose|hit|one|combo/i.test(clip.name ?? '');
         next.setLoop(isOneShot ? THREE.LoopOnce : THREE.LoopRepeat, isOneShot ? 1 : Infinity);
         next.clampWhenFinished = !!isOneShot;
         next.setEffectiveTimeScale(bpmScale);
-        next.reset(); // always reset before replaying
-        // Ensure idle keeps some weight; cross-fade from current to next
+        next.reset();
         if (eng.currentAction) {
           eng.currentAction.crossFadeTo(next, 0.25, false);
         } else if (eng.idleAction) {

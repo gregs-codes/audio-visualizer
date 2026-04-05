@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { DancerPreview } from '../visualizer/dancer/DancerPreview';
 
 interface CharacterSettingsProps {
@@ -32,6 +32,7 @@ const shortName = (path: string) =>
 
 export function CharacterSettings({ openSections, toggleSection, showDancer, setShowDancer, dancerPos, setDancerPos, dancerSize, setDancerSize, dancerOverlaySources, setDancerOverlaySources, charFiles, animFiles, analyserNode }: CharacterSettingsProps) {
   const selectedAnims: string[] = dancerOverlaySources.animationUrls ?? [];
+  const [embeddedClipNames, setEmbeddedClipNames] = useState<string[]>([]);
 
   const toggleAnim = (url: string) => {
     setDancerOverlaySources((s: any) => {
@@ -40,6 +41,10 @@ export function CharacterSettings({ openSections, toggleSection, showDancer, set
       return { ...s, animationUrls: next };
     });
   };
+
+  // All available clips = embedded (from character FBX) + loaded external anims
+  const allClipCount = embeddedClipNames.length;
+  const clipIndex: number = dancerOverlaySources.clipIndex ?? -1;
 
   return (
     <div className="section">
@@ -68,9 +73,9 @@ export function CharacterSettings({ openSections, toggleSection, showDancer, set
             </button>
           </div>
 
-          {/* Character selection — pill grid */}
+          {/* Character selection — pill grid + upload */}
           <div className="field-label">Character</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
             {charFiles.length === 0 && (
               <span style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>No character files found</span>
             )}
@@ -79,7 +84,7 @@ export function CharacterSettings({ openSections, toggleSection, showDancer, set
               return (
                 <button
                   key={c}
-                  onClick={() => setDancerOverlaySources((s: any) => ({ ...s, characterUrl: c }))}
+                  onClick={() => setDancerOverlaySources((s: any) => ({ ...s, characterUrl: c, clipIndex: -1, animationUrls: [] }))}
                   style={{
                     padding: '3px 9px', borderRadius: 99, fontSize: 10, cursor: 'pointer',
                     background: active ? 'rgba(0,229,160,0.18)' : 'rgba(255,255,255,0.04)',
@@ -92,11 +97,64 @@ export function CharacterSettings({ openSections, toggleSection, showDancer, set
                 </button>
               );
             })}
+            {/* Upload custom FBX */}
+            {dancerOverlaySources.characterUrl?.startsWith('blob:') && (
+              <span style={{ fontSize: 10, color: 'var(--accent)', padding: '2px 8px', borderRadius: 99, background: 'rgba(0,229,160,0.12)', border: '1px solid rgba(0,229,160,0.3)' }}>
+                Custom ✓
+              </span>
+            )}
+            <div className="upload" style={{ position: 'relative' }}>
+              <button className="icon-btn" style={{ fontSize: 10, padding: '3px 9px' }}>+ Upload FBX</button>
+              <input type="file" accept=".fbx,.glb,.gltf" style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  const url = URL.createObjectURL(f);
+                  setDancerOverlaySources((s: any) => {
+                    if (s.characterUrl?.startsWith('blob:')) URL.revokeObjectURL(s.characterUrl);
+                    return { ...s, characterUrl: url, clipIndex: -1, animationUrls: [] };
+                  });
+                  setEmbeddedClipNames([]);
+                }} />
+            </div>
           </div>
 
-          {/* Animations — toggle pills */}
+          {/* Embedded clip selector — populated once FBX loads */}
+          {allClipCount > 0 && (
+            <>
+              <div className="field-label" style={{ marginTop: 4 }}>
+                Animations in FBX ({allClipCount})
+                <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 400, color: 'var(--muted)' }}>select to lock / auto-cycle</span>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                <button
+                  onClick={() => setDancerOverlaySources((s: any) => ({ ...s, clipIndex: -1 }))}
+                  style={{ padding: '3px 9px', borderRadius: 99, fontSize: 10, cursor: 'pointer',
+                    background: clipIndex === -1 ? 'rgba(0,229,160,0.18)' : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${clipIndex === -1 ? 'rgba(0,229,160,0.45)' : 'var(--panelBorder)'}`,
+                    color: clipIndex === -1 ? 'var(--accent)' : 'var(--muted)' }}>
+                  🔀 Auto-cycle
+                </button>
+                {embeddedClipNames.map((name, i) => {
+                  const active = clipIndex === i;
+                  return (
+                    <button key={i}
+                      onClick={() => setDancerOverlaySources((s: any) => ({ ...s, clipIndex: i }))}
+                      style={{ padding: '3px 9px', borderRadius: 99, fontSize: 10, cursor: 'pointer',
+                        background: active ? 'rgba(77,168,255,0.18)' : 'rgba(255,255,255,0.04)',
+                        border: `1px solid ${active ? 'rgba(77,168,255,0.45)' : 'var(--panelBorder)'}`,
+                        color: active ? '#7aa2ff' : 'var(--muted)', fontWeight: active ? 700 : 400 }}>
+                      {active ? '▶ ' : ''}{name || `Clip ${i + 1}`}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* Animations — external FBX files toggle pills */}
           <div className="field-label" style={{ marginTop: 4 }}>
-            Animations
+            External Animations
             <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 400, color: 'var(--muted)' }}>tap to add/remove</span>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -124,7 +182,7 @@ export function CharacterSettings({ openSections, toggleSection, showDancer, set
           </div>
           {selectedAnims.length > 0 && (
             <div style={{ fontSize: 10, color: 'var(--muted)' }}>
-              {selectedAnims.length} animation{selectedAnims.length > 1 ? 's' : ''} queued — will cycle randomly
+              {selectedAnims.length} animation{selectedAnims.length > 1 ? 's' : ''} queued — cycles every ~5s or on beat
             </div>
           )}
 
@@ -221,7 +279,14 @@ export function CharacterSettings({ openSections, toggleSection, showDancer, set
           {/* Live preview */}
           <div className="field-label" style={{ marginTop: 6 }}>Preview</div>
           <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid var(--panelBorder)' }}>
-            <DancerPreview sources={dancerOverlaySources} analyser={analyserNode} width={280} height={158} panelKey="overlay-preview" />
+            <DancerPreview
+              sources={dancerOverlaySources}
+              analyser={analyserNode}
+              width={280}
+              height={158}
+              panelKey="overlay-preview"
+              onClipsLoaded={setEmbeddedClipNames}
+            />
           </div>
         </div>
       )}

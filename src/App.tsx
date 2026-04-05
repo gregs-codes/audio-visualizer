@@ -14,6 +14,7 @@ import { useAudioAnalyzer } from './audio/useAudioAnalyzer';
 import { useVideoScenes } from './hooks/useVideoScenes';
 import type { VisualizerMode, FrequencyBand } from './visualizer/visualizerModes';
 import type { DancerSources } from './visualizer/dancer/DancerEngine';
+import type { BgCharacterSettings } from './visualizer/dancer/BgCharacterEngine';
 import { ANIMATION_FILES } from './visualizer/dancer/animations';
 import { CHARACTER_FILES } from './visualizer/dancer/characters';
 import { VISUALIZER_MODES, LABELS, VISUALIZER_CATEGORIES } from './visualizer/visualizers';
@@ -42,7 +43,7 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [theme, setTheme] = useState('dark');
 	const [color, setColor] = useState('#a0b4f7');
 	// Background controls
-	const [bgMode, setBgMode] = useState<'none'|'color'|'image'|'video'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'>('none');
+	const [bgMode, setBgMode] = useState<'none'|'color'|'image'|'video'|'character'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'>('none');
 	const [bgColor, setBgColor] = useState<string>('#101321');
 	const [bgImageUrl, setBgImageUrl] = useState<string>('');
 	const [bgFit, setBgFit] = useState<'cover'|'contain'|'stretch'>('cover');
@@ -52,7 +53,9 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 	const [bgVideoOffsetX, setBgVideoOffsetX] = useState<number>(0);
 	const [bgVideoOffsetY, setBgVideoOffsetY] = useState<number>(0);
 	const bgVideoRef = useRef<HTMLVideoElement | null>(null);
-	useVideoScenes(bgVideoRef, bgVideoUrls, bgMode === 'video');
+	const videoFadeRef = useVideoScenes(bgVideoRef, bgVideoUrls, bgMode === 'video');
+	const [bgCharacterSettings, setBgCharacterSettings] = useState<BgCharacterSettings>({});
+	const [bgClipNames, setBgClipNames] = useState<string[]>([]);
 	const [ready, setReady] = useState(false);
 	const [layout, setLayout] = useState<LayoutMode>('1');
 	const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
@@ -758,6 +761,9 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 				setBgVideoOffsetX={setBgVideoOffsetX}
 				bgVideoOffsetY={bgVideoOffsetY}
 				setBgVideoOffsetY={setBgVideoOffsetY}
+				bgCharacterSettings={bgCharacterSettings}
+				setBgCharacterSettings={setBgCharacterSettings}
+				bgClipNames={bgClipNames}
 			/>
 			<PanelsSettings
 				openSections={openSections}
@@ -1129,9 +1135,12 @@ const [serverUrl, setServerUrl] = useState('http://localhost:9090/render');
 									canvasRef={canvasRef}
 									exportCanvasRef={exportCanvasRef}
 									bgVideoRef={bgVideoRef}
+                                                                        videoFadeRef={videoFadeRef}
 									bgVideoZoom={bgVideoZoom}
 									bgVideoOffsetX={bgVideoOffsetX}
 									bgVideoOffsetY={bgVideoOffsetY}
+									bgCharacterSettings={bgCharacterSettings}
+									onBgClipsChange={setBgClipNames}
 									subtitleCues={subtitleCues}
 									subtitleEnabled={subtitleEnabled}
 									subtitlePos={subtitlePos}

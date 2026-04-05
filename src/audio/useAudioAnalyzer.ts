@@ -9,6 +9,7 @@ import type { FrequencyBand } from '../visualizer/visualizerModes';
  */
 export function useAudioAnalyzer(){
 	const audioRef = useRef<HTMLAudioElement|null>(null);
+	const audioBlobUrlRef = useRef<string|null>(null);
 	const analyserRef = useRef<AnalyserNode|null>(null);
 	const ctxRef = useRef<AudioContext|null>(null);
 	const sourceRef = useRef<MediaElementAudioSourceNode|null>(null);
@@ -34,7 +35,12 @@ export function useAudioAnalyzer(){
 		}
 
 		// Create new audio element for the provided file
-		const audio = new Audio(URL.createObjectURL(file));
+		if (audioBlobUrlRef.current) {
+			URL.revokeObjectURL(audioBlobUrlRef.current);
+		}
+		const blobUrl = URL.createObjectURL(file);
+		audioBlobUrlRef.current = blobUrl;
+		const audio = new Audio(blobUrl);
 		audio.crossOrigin = 'anonymous';
 		audioRef.current = audio;
 

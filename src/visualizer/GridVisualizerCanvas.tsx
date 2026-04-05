@@ -4,6 +4,8 @@ import type { VisualizerMode } from './visualizerModes';
 import { VISUALIZERS } from './visualizers';
 import type { DancerSources } from './dancer/DancerEngine';
 import { renderDancerWithFeatures } from './dancer/DancerEngine';
+import { renderBgCharacter, getBgCharacterClipNames } from './dancer/BgCharacterEngine';
+import type { BgCharacterSettings } from './dancer/BgCharacterEngine';
 import { getActiveCue } from '../subtitles/parseSrt';
 import type { SubtitleCue } from '../subtitles/parseSrt';
 import { renderHighGfxWithFeatures } from './highgfx/HighGfxEngine';
@@ -23,6 +25,7 @@ import { renderHighGfxHexagonWithFeatures } from './highgfx/HighGfxHexagonEngine
 import { renderHighGfxHexPathsWithFeatures } from './highgfx/HighGfxHexPathsEngine';
 import { renderHighGfxDotMatrix3DWithFeatures } from './highgfx/HighGfxDotMatrix3DEngine';
 import { AudioFeatureDetector } from '../audio/audioFeatures';
+import type { VideoFadeRef } from '../hooks/useVideoScenes';
 
 export type LayoutMode = '1' | '2-horizontal' | '2-vertical' | '4';
 
@@ -40,11 +43,14 @@ type Props = {
   backgroundImageUrl?: string; // optional image background (local URL)
   backgroundFit?: 'cover'|'contain'|'stretch';
   backgroundOpacity?: number; // 0..1
-  bgMode?: 'none'|'color'|'image'|'video'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs';
+  bgMode?: 'none'|'color'|'image'|'video'|'character'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs';
   bgVideoRef?: React.RefObject<HTMLVideoElement | null>;
+  videoFadeRef?: VideoFadeRef;
   bgVideoZoom?: number;
   bgVideoOffsetX?: number;
   bgVideoOffsetY?: number;
+  bgCharacterSettings?: BgCharacterSettings;
+  onBgClipsChange?: (names: string[]) => void;
   overlayTitle?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayDescription?: { text: string; position: 'lt'|'mt'|'rt'|'lm'|'mm'|'rm'|'lb'|'mb'|'rb'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
   overlayCountdown?: { enabled: boolean; position: 'lt'|'ct'|'rt'|'bl'|'br'; color: string; effects?: { float?: boolean; bounce?: boolean; pulse?: boolean } };
@@ -78,15 +84,19 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
   bgParallax = false,
   parallaxEngine = undefined,
   bgVideoRef,
+  videoFadeRef,
   bgVideoZoom = 1,
   bgVideoOffsetX = 0,
   bgVideoOffsetY = 0,
+  bgCharacterSettings,
+  onBgClipsChange,
   instanceKey = 'main',
 }, ref) {
   const innerRef = useRef<HTMLCanvasElement>(null);
   const dancerFrameRef = useRef<HTMLCanvasElement | null>(null);
   const hgFramesRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const bgImgRef = useRef<HTMLImageElement | null>(null);
+  const bgCharFrameRef = useRef<HTMLCanvasElement | null>(null);
   const bgLoadedRef = useRef<boolean>(false);
   // VU meter state refs for smooth animation
   const vuLevelRef = useRef<{ L: number; R: number }>({ L: 0, R: 0 });
@@ -221,13 +231,34 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
       const baseFreq = new Uint8Array(analyser.frequencyBinCount);
       analyser.getByteFrequencyData(baseFreq);
       const timeNow = performance.now() / 1000;
+      const energy = baseFreq.reduce((sum, v) => sum + v, 0) / (255 * Math.max(1, baseFreq.length));
       // Draw background: parallax, color, image, or audio-reactive viz
-      if (bgMode === 'video') {
+      if (bgMode === 'character') {
+        if (bgCharFrameRef.current) { try { ctx.drawImage(bgCharFrameRef.current, 0, 0, c.width, c.height); } catch {} }
+        const charKey = `bg-char|${instanceKey}|${bgCharacterSettings?.url ?? ''}`;
+        renderBgCharacter(charKey, bgCharacterSettings ?? {}, c.width, c.height, energy, isPlaying, timeNow)
+          .then(canvas => {
+            bgCharFrameRef.current = canvas;
+            if (onBgClipsChange && instanceKey === 'preview') {
+              const names = getBgCharacterClipNames(charKey);
+              if (names.length > 0) onBgClipsChange(names);
+            }
+          });
+      } else if (bgMode === 'video') {
         const video = bgVideoRef?.current;
-        if (video && video.readyState >= 2) {
-          const vw = video.videoWidth || c.width;
-          const vh = video.videoHeight || c.height;
-          const cw = c.width, ch = c.height;
+        const fade = videoFadeRef?.current;
+        const now = performance.now();
+        const t = fade && fade.startMs > 0
+          ? Math.min(1, (now - fade.startMs) / fade.durationMs)
+          : 1;
+        // ease-in-out: smooth start and end, no jarring linear pop
+        const fadeAlpha = t < 1 ? t * t * (3 - 2 * t) : 1;
+        const cw = c.width, ch = c.height;
+
+        const drawVideoEl = (v: HTMLVideoElement, alpha: number) => {
+          if (!v || v.readyState < 2) return;
+          const vw = v.videoWidth || cw;
+          const vh = v.videoHeight || ch;
           let dx = 0, dy = 0, dw = cw, dh = ch;
           if (backgroundFit === 'contain') {
             const scale = Math.min(cw / vw, ch / vh) * bgVideoZoom;
@@ -243,7 +274,39 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           }
           dx += Math.round(bgVideoOffsetX / 100 * cw);
           dy += Math.round(bgVideoOffsetY / 100 * ch);
-          try { ctx.drawImage(video, dx, dy, dw, dh); } catch {}
+          ctx.globalAlpha = alpha;
+          try { ctx.drawImage(v, dx, dy, dw, dh); } catch {}
+          ctx.globalAlpha = 1;
+        };
+
+        const drawSnapEl = (snap: HTMLCanvasElement, alpha: number) => {
+          const vw = snap.width || cw;
+          const vh = snap.height || ch;
+          let dx = 0, dy = 0, dw = cw, dh = ch;
+          if (backgroundFit === 'contain') {
+            const scale = Math.min(cw / vw, ch / vh) * bgVideoZoom;
+            dw = Math.ceil(vw * scale); dh = Math.ceil(vh * scale);
+            dx = Math.floor((cw - dw) / 2); dy = Math.floor((ch - dh) / 2);
+          } else if (backgroundFit === 'stretch') {
+            dw = Math.ceil(cw * bgVideoZoom); dh = Math.ceil(ch * bgVideoZoom);
+            dx = Math.floor((cw - dw) / 2); dy = Math.floor((ch - dh) / 2);
+          } else {
+            const scale = Math.max(cw / vw, ch / vh) * bgVideoZoom;
+            dw = Math.ceil(vw * scale); dh = Math.ceil(vh * scale);
+            dx = Math.floor((cw - dw) / 2); dy = Math.floor((ch - dh) / 2);
+          }
+          dx += Math.round(bgVideoOffsetX / 100 * cw);
+          dy += Math.round(bgVideoOffsetY / 100 * ch);
+          ctx.globalAlpha = alpha;
+          try { ctx.drawImage(snap, dx, dy, dw, dh); } catch {}
+          ctx.globalAlpha = 1;
+        };
+
+        if (fadeAlpha < 1 && fade?.prev) {
+          drawSnapEl(fade.prev, 1 - fadeAlpha);
+        }
+        if (video) {
+          drawVideoEl(video, fadeAlpha < 1 ? fadeAlpha : 1);
         }
       } else if (bgMode === 'parallax-spotlights' || bgMode === 'parallax-lasers' || bgMode === 'parallax-tunnel' || bgMode === 'parallax-rays') {
         if (!parallaxRef.current || parallaxRef.current.bgMode !== bgMode) {
@@ -323,7 +386,6 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
           ctx.restore();
         }
       }
-      const energy = baseFreq.reduce((sum, v) => sum + v, 0) / (255 * Math.max(1, baseFreq.length));
       const features = mainDetector.update(1/60);
       panels.forEach((p, i) => {
         const rgn = regions[i] || regions[0];
@@ -549,7 +611,7 @@ export const GridVisualizerCanvas = forwardRef<HTMLCanvasElement, Props & { inst
     };
     raf = requestAnimationFrame(render);
     return () => { cancelled = true; cancelAnimationFrame(raf); };
-  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU, overlaySubtitle, exportPhase, bgParallax, parallaxEngine, bgVideoRef, bgVideoZoom, bgVideoOffsetX, bgVideoOffsetY]);
+  }, [analyser, analysers, layout, panels, innerRef, audio, overlayTitle, overlayDescription, overlayCountdown, overlayDancer, overlayVU, overlaySubtitle, exportPhase, bgParallax, parallaxEngine, bgVideoRef, bgVideoZoom, bgVideoOffsetX, bgVideoOffsetY, bgCharacterSettings]);
 
   return <canvas ref={innerRef} width={width} height={height} />;
 });

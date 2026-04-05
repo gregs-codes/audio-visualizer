@@ -1,6 +1,9 @@
 import ThreeShaderVisualizer from '../visualizer/ThreeShaderVisualizer';
 import React, { useEffect, useRef } from 'react';
 import type { SubtitleCue } from '../subtitles/parseSrt';
+import { renderBgCharacter } from '../visualizer/dancer/BgCharacterEngine';
+import type { BgCharacterSettings } from '../visualizer/dancer/BgCharacterEngine';
+import type { DancerSources } from '../visualizer/dancer/DancerEngine';
 import { GridVisualizerCanvas } from '../visualizer/GridVisualizerCanvas';
 import ThreeAudioVisualizer from '../visualizer/ThreeAudioVisualizer';
 import HexagonVisualizer from '../visualizer/HexagonVisualizer';
@@ -17,6 +20,8 @@ import {
   bgVizOrbsAnimate,
 } from '../visualizer/ParallaxBackgroundEngine';
 
+import type { VideoFadeRef } from '../hooks/useVideoScenes';
+
 // Background canvas layer that supports all background modes (including animated parallax/bg-viz)
 const ThreeJsBgLayer: React.FC<{
   bgMode: string | undefined;
@@ -28,14 +33,16 @@ const ThreeJsBgLayer: React.FC<{
   height: number;
   analyser: AnalyserNode | null;
   bgVideoRef?: React.RefObject<HTMLVideoElement | null>;
+  videoFadeRef?: VideoFadeRef;
   bgVideoZoom?: number;
   bgVideoOffsetX?: number;
   bgVideoOffsetY?: number;
-}> = ({ bgMode, bgColor, bgImageUrl, bgFit, bgOpacity, width, height, analyser, bgVideoRef, bgVideoZoom = 1, bgVideoOffsetX = 0, bgVideoOffsetY = 0 }) => {
+  bgCharacterSettings?: BgCharacterSettings;
+}> = ({ bgMode, bgColor, bgImageUrl, bgFit, bgOpacity, width, height, analyser, bgVideoRef, videoFadeRef, bgVideoZoom = 1, bgVideoOffsetX = 0, bgVideoOffsetY = 0, bgCharacterSettings }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const parallaxRef = useRef<ParallaxBackgroundEngine & { bgMode?: string } | null>(null);
   const rafRef = useRef<number>();
-  const isAnimated = bgMode?.startsWith('parallax-') || bgMode?.startsWith('bg-viz-') || bgMode === 'video';
+  const isAnimated = bgMode?.startsWith('parallax-') || bgMode?.startsWith('bg-viz-') || bgMode === 'video' || bgMode === 'character';
 
   useEffect(() => {
     if (!isAnimated) return;
@@ -46,6 +53,7 @@ const ThreeJsBgLayer: React.FC<{
     parallaxRef.current = null;
     const BG_FRAME_MS = 1000 / 30; // cap background animations at 30 fps
     let lastBgFrame = 0;
+    let bgCharFrame: HTMLCanvasElement | null = null;
 
     const animate = (now: number = 0) => {
       if (now - lastBgFrame < BG_FRAME_MS) {
@@ -56,11 +64,26 @@ const ThreeJsBgLayer: React.FC<{
       ctx.clearRect(0, 0, width, height);
       const time = performance.now();
 
-      if (bgMode === 'video') {
+      if (bgMode === 'character') {
+        if (bgCharFrame) { try { ctx.drawImage(bgCharFrame, 0, 0, width, height); } catch {} }
+        const freq = analyser ? (() => { const d = new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(d); return d; })() : new Uint8Array(128);
+        const energy = freq.reduce((s, v) => s + v, 0) / (255 * Math.max(1, freq.length));
+        const charKey = `bg-char|${bgCharacterSettings?.url ?? ''}`;
+        renderBgCharacter(charKey, bgCharacterSettings ?? {}, width, height, energy, true, time / 1000)
+          .then(canvas => { bgCharFrame = canvas; });
+      } else if (bgMode === 'video') {
         const video = bgVideoRef?.current;
-        if (video && video.readyState >= 2) {
-          const vw = video.videoWidth || width;
-          const vh = video.videoHeight || height;
+        const fade = videoFadeRef?.current;
+        const t = fade && fade.startMs > 0
+          ? Math.min(1, (now - fade.startMs) / fade.durationMs)
+          : 1;
+        // ease-in-out: smooth start and end, no jarring linear pop
+        const fadeAlpha = t < 1 ? t * t * (3 - 2 * t) : 1;
+
+        const drawVideoEl = (v: HTMLVideoElement, alpha: number) => {
+          if (!v || v.readyState < 2) return;
+          const vw = v.videoWidth || width;
+          const vh = v.videoHeight || height;
           let dx = 0, dy = 0, dw = width, dh = height;
           if (bgFit === 'contain') {
             const scale = Math.min(width / vw, height / vh) * bgVideoZoom;
@@ -76,7 +99,39 @@ const ThreeJsBgLayer: React.FC<{
           }
           dx += Math.round(bgVideoOffsetX / 100 * width);
           dy += Math.round(bgVideoOffsetY / 100 * height);
-          try { ctx.drawImage(video, dx, dy, dw, dh); } catch {}
+          ctx.globalAlpha = alpha;
+          try { ctx.drawImage(v, dx, dy, dw, dh); } catch {}
+          ctx.globalAlpha = 1;
+        };
+
+        const drawSnapEl = (snap: HTMLCanvasElement, alpha: number) => {
+          const vw = snap.width || width;
+          const vh = snap.height || height;
+          let dx = 0, dy = 0, dw = width, dh = height;
+          if (bgFit === 'contain') {
+            const scale = Math.min(width / vw, height / vh) * bgVideoZoom;
+            dw = Math.ceil(vw * scale); dh = Math.ceil(vh * scale);
+            dx = Math.floor((width - dw) / 2); dy = Math.floor((height - dh) / 2);
+          } else if (bgFit === 'stretch') {
+            dw = Math.ceil(width * bgVideoZoom); dh = Math.ceil(height * bgVideoZoom);
+            dx = Math.floor((width - dw) / 2); dy = Math.floor((height - dh) / 2);
+          } else {
+            const scale = Math.max(width / vw, height / vh) * bgVideoZoom;
+            dw = Math.ceil(vw * scale); dh = Math.ceil(vh * scale);
+            dx = Math.floor((width - dw) / 2); dy = Math.floor((height - dh) / 2);
+          }
+          dx += Math.round(bgVideoOffsetX / 100 * width);
+          dy += Math.round(bgVideoOffsetY / 100 * height);
+          ctx.globalAlpha = alpha;
+          try { ctx.drawImage(snap, dx, dy, dw, dh); } catch {}
+          ctx.globalAlpha = 1;
+        };
+
+        if (fadeAlpha < 1 && fade?.prev) {
+          drawSnapEl(fade.prev, 1 - fadeAlpha);
+        }
+        if (video) {
+          drawVideoEl(video, fadeAlpha < 1 ? fadeAlpha : 1);
         }
       } else if (bgMode === 'parallax-spotlights' || bgMode === 'parallax-lasers' || bgMode === 'parallax-tunnel' || bgMode === 'parallax-rays') {
         if (!parallaxRef.current || parallaxRef.current.bgMode !== bgMode) {
@@ -105,7 +160,7 @@ const ThreeJsBgLayer: React.FC<{
     };
     rafRef.current = requestAnimationFrame(animate);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [bgMode, width, height, analyser, bgColor, bgVideoRef, bgVideoZoom, bgVideoOffsetX, bgVideoOffsetY]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [bgMode, width, height, analyser, bgColor, bgVideoRef, bgVideoZoom, bgVideoOffsetX, bgVideoOffsetY, bgCharacterSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const base: React.CSSProperties = { position: 'absolute', inset: 0, zIndex: 0 };
 
@@ -140,15 +195,18 @@ interface VisualizerPanelProps {
   previewSize: { w: number; h: number };
   effectiveSize: { w: number; h: number };
   audioEl: HTMLAudioElement | null;
-  bgMode: 'none'|'color'|'image'|'video'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'|undefined;
+  bgMode: 'none'|'color'|'image'|'video'|'character'|'parallax-spotlights'|'parallax-lasers'|'parallax-tunnel'|'parallax-rays'|'bg-viz-bars'|'bg-viz-radial'|'bg-viz-orbs'|undefined;
   bgColor: string;
   bgImageUrl: string;
   bgFit: 'cover'|'contain'|'stretch'|undefined;
   bgOpacity: number;
   bgVideoRef?: React.RefObject<HTMLVideoElement | null>;
+  videoFadeRef?: VideoFadeRef;
   bgVideoZoom?: number;
   bgVideoOffsetX?: number;
   bgVideoOffsetY?: number;
+  bgCharacterSettings?: BgCharacterSettings;
+  onBgClipsChange?: (names: string[]) => void;
   title: string;
   titlePos: any;
   titleColor: string;
@@ -212,9 +270,12 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
   canvasRef,
   exportCanvasRef,
   bgVideoRef,
+  videoFadeRef,
   bgVideoZoom = 1,
   bgVideoOffsetX = 0,
   bgVideoOffsetY = 0,
+  bgCharacterSettings,
+  onBgClipsChange,
   subtitleCues = [],
   subtitleEnabled = false,
   subtitlePos = 'mb',
@@ -288,9 +349,11 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
     height: previewSize.h,
     analyser: analyserNode,
     bgVideoRef,
+    videoFadeRef,
     bgVideoZoom,
     bgVideoOffsetX,
     bgVideoOffsetY,
+    bgCharacterSettings,
   };
 
   // Helper to attach the main visualizer canvas (for Three.js / hexagon modes)
@@ -370,9 +433,12 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
             bgMode={bgMode}
             instanceKey={'preview'}
             bgVideoRef={bgVideoRef}
+            videoFadeRef={videoFadeRef}
             bgVideoZoom={bgVideoZoom}
             bgVideoOffsetX={bgVideoOffsetX}
             bgVideoOffsetY={bgVideoOffsetY}
+            bgCharacterSettings={bgCharacterSettings}
+            onBgClipsChange={onBgClipsChange}
             overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
             overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
             overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
@@ -404,9 +470,11 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
           backgroundOpacity={bgOpacity}
           bgMode={bgMode}
           instanceKey={'export'}            bgVideoRef={bgVideoRef}
+            videoFadeRef={videoFadeRef}
             bgVideoZoom={bgVideoZoom}
             bgVideoOffsetX={bgVideoOffsetX}
-            bgVideoOffsetY={bgVideoOffsetY}          overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
+            bgVideoOffsetY={bgVideoOffsetY}            bgCharacterSettings={bgCharacterSettings}
+            overlayTitle={{ text: title, position: titlePos, color: titleColor, effects: titleFx }}
           overlayDescription={{ text: desc, position: descPos, color: descColor, effects: descFx }}
           overlayCountdown={{ enabled: true, position: countPos, color: countColor, effects: countFx }}
           overlayDancer={{ enabled: showDancer, position: dancerPos, widthPct: dancerSize, sources: dancerOverlaySources }}
